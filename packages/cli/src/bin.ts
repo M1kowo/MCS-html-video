@@ -19,6 +19,18 @@ import {
   projectRender,
 } from './commands/project.js';
 import { startStudioServer } from './studio-server.js';
+import {
+  projectApply,
+  projectAttachAudio,
+  projectDesignContext,
+  projectGetDesignPlan,
+  projectSetGraph,
+  projectWriteDesignPlan,
+  projectWriteFrame,
+  projectWriteHtml,
+  subtitleRender,
+} from './commands/external-project.js';
+import { startMcpServer } from './mcp-server.js';
 
 // cac is a CJS default export; ESM interop sometimes wraps it in `.default`
 // biome-ignore lint/suspicious/noExplicitAny: cac's types don't expose this shape
@@ -184,6 +196,131 @@ cli
     await projectRender(ctx, id, {
       output: opts.output,
       streamProgress: !!opts.streamProgress,
+    });
+  });
+
+// ====== External AI ingestion (provider/model agnostic) ======
+
+cli
+  .command('project-design-context <id>', 'Read optional style packs, component guidance, and recent design history')
+  .option('--recent <n>', 'Maximum recent design summaries', { default: 8 })
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectDesignContext(ctx, id, Number(opts.recent));
+  });
+
+cli
+  .command('project-write-design-plan <id>', 'Validate and save a project design-plan.json')
+  .option('--plan-file <path>', 'Design plan JSON file (required)')
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.planFile) fail('invalid-input', '--plan-file required');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectWriteDesignPlan(ctx, id, opts.planFile);
+  });
+
+cli
+  .command('project-get-design-plan <id>', 'Read a project design-plan.json')
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectGetDesignPlan(ctx, id);
+  });
+
+cli
+  .command('project-write-html <id>', 'Replace a project with externally generated single-frame HTML')
+  .option('--html-file <path>', 'Complete self-contained HTML file (required)')
+  .option('--duration <seconds>', 'Frame duration', { default: 5 })
+  .option('--node-id <id>', 'ContentGraph node id', { default: 'main' })
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.htmlFile) fail('invalid-input', '--html-file required');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectWriteHtml(ctx, id, {
+      htmlFile: opts.htmlFile,
+      duration: Number(opts.duration),
+      nodeId: opts.nodeId,
+    });
+  });
+
+cli
+  .command('project-set-graph <id>', 'Write an externally generated ContentGraph')
+  .option('--graph-file <path>', 'ContentGraph JSON file (required)')
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.graphFile) fail('invalid-input', '--graph-file required');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectSetGraph(ctx, id, opts.graphFile);
+  });
+
+cli
+  .command('project-write-frame <id>', 'Write HTML for one ContentGraph node')
+  .option('--node <nodeId>', 'ContentGraph node id (required)')
+  .option('--html-file <path>', 'Complete self-contained frame HTML (required)')
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.node) fail('invalid-input', '--node required');
+    if (!opts.htmlFile) fail('invalid-input', '--html-file required');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectWriteFrame(ctx, id, { nodeId: opts.node, htmlFile: opts.htmlFile });
+  });
+
+cli
+  .command('project-apply <directory>', 'Create or update a project from an external-AI video package')
+  .option('--project <id>', 'Update an existing project instead of creating one')
+  .action(async (directory: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectApply(ctx, directory, {
+      ...(opts.project !== undefined && { projectId: opts.project }),
+    });
+  });
+
+cli
+  .command('project-attach-audio <id>', 'Attach local narration or music audio to an external-AI project')
+  .option('--audio-file <path>', 'Audio file (required)')
+  .option('--role <role>', 'narration or music', { default: 'narration' })
+  .option('--volume-db <number>', 'Mix volume in dB')
+  .action(async (id: string, opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.audioFile) fail('invalid-input', '--audio-file required');
+    if (opts.role !== 'narration' && opts.role !== 'music') fail('invalid-input', '--role must be narration or music');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await projectAttachAudio(ctx, id, {
+      audioFile: opts.audioFile,
+      role: opts.role,
+      ...(opts.volumeDb !== undefined && { volumeDb: Number(opts.volumeDb) }),
+    });
+  });
+
+cli
+  .command('mcp', 'Run the model-independent html-video MCP server over stdio')
+  .action(async (opts: any) => {
+    // stdout is reserved exclusively for MCP JSON-RPC messages.
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await startMcpServer(ctx);
+  });
+
+cli
+  .command('subtitle-render', 'Render an SRT + MP3 video without invoking an internal AI')
+  .option('--srt <path>', 'Subtitle file (required)')
+  .option('--audio <path>', 'MP3 audio file (required)')
+  .option('--output-dir <path>', 'Output directory (required)')
+  .option('--name <text>', 'Output basename')
+  .option('--style <id>', 'Visual style template', { default: 'frame-swiss-grid' })
+  .action(async (opts: any) => {
+    setJsonMode(!!opts.json);
+    if (!opts.srt) fail('invalid-input', '--srt required');
+    if (!opts.audio) fail('invalid-input', '--audio required');
+    if (!opts.outputDir) fail('invalid-input', '--output-dir required');
+    const ctx = await bootstrap({ cwd: opts.cwd });
+    await subtitleRender(ctx, {
+      srt: opts.srt,
+      audio: opts.audio,
+      outputDir: opts.outputDir,
+      ...(opts.name && { baseName: opts.name }),
+      style: opts.style,
     });
   });
 

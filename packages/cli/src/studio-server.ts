@@ -6,7 +6,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, copyFile, mkdir } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
-import { dirname, extname, join, resolve, basename } from 'node:path';
+import { dirname, extname, join, resolve, basename, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,11 @@ import type { CliContext } from './context.js';
 import { AssetStore, generateTts, generateMusic } from '@html-video/core';
 import { extractUrls, fetchSource } from './fetch-source.js';
 import { detectAll, findAgent, spawnAgent } from '@html-video/runtime';
+import { BatchQueue } from './batch/queue.js';
+import { createBatchProcessor } from './batch/processor.js';
+import { matchMediaFiles, scanInputDirectory } from './batch/matching.js';
+import { BATCH_TEMPLATE_IDS, type BatchTaskInput } from './batch/types.js';
+import { pickDirectory } from './batch/directory-picker.js';
 
 interface StudioHandle {
   url: string;
@@ -49,6 +54,10 @@ function resolveUiRoot(): string {
 
 export async function startStudioServer(ctx: CliContext, port: number): Promise<StudioHandle> {
   const uiRoot = resolveUiRoot();
+  // One queue per local Studio process. BatchQueue drains strictly serially,
+  // so only one Chromium/FFmpeg render can consume the machine at a time.
+  const batchQueue = new BatchQueue(createBatchProcessor(ctx));
+  let directoryPickerOpen = false;
 
   const server = createServer(async (req, res) => {
     try {
@@ -77,6 +86,133 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
           preferences: (body.preferences as Record<string, unknown>) ?? {},
         });
         return json(res, 200, { project });
+      }
+
+      // ============== local SRT + MP3 batch workbench ==============
+
+      if (url.pathname === '/api/batch/styles' && m === 'GET') {
+        return json(res, 200, {
+          styles: [
+            { id: 'ai-auto', name: 'AI 自动（受控）' },
+            { id: 'frame-swiss-grid', name: '简洁网格' },
+            { id: 'frame-kinetic-type', name: '动感大字' },
+            { id: 'frame-warm-grain', name: '暖色编辑' },
+            { id: 'frame-light-leak-cinema', name: '电影字幕' },
+            { id: 'frame-bold-signal', name: '醒目信号' },
+          ],
+        });
+      }
+
+      if (url.pathname === '/api/batch/pick-directory' && m === 'POST') {
+        if (directoryPickerOpen) {
+          return json(res, 409, { error: '已有目录选择窗口打开，请先完成或取消它' });
+        }
+        const body = await readBody(req);
+        const kind = body.kind === 'output' ? '输出' : '输入';
+        directoryPickerOpen = true;
+        try {
+          const path = await pickDirectory(`选择${kind}目录`);
+          return json(res, 200, { path });
+        } finally {
+          directoryPickerOpen = false;
+        }
+      }
+
+      if (url.pathname === '/api/batch/scan' && m === 'POST') {
+        const body = await readBody(req);
+        const rawInputDir = typeof body.inputDir === 'string' ? body.inputDir.trim() : '';
+        if (!rawInputDir || !isAbsolute(rawInputDir)) {
+          return json(res, 400, { error: '请输入完整目录路径，或使用“选择目录”按钮' });
+        }
+        const inputDir = resolve(rawInputDir);
+        if (!inputDir || !existsSync(inputDir) || !statSync(inputDir).isDirectory()) {
+          return json(res, 400, { error: '请选择有效的输入目录' });
+        }
+        return json(res, 200, { inputDir, ...(await scanInputDirectory(inputDir)) });
+      }
+
+      // Browser file/directory selection uploads a private working copy under
+      // .html-video/batch/uploads. Native folder selection above scans in place.
+      if (url.pathname === '/api/batch/upload' && m === 'POST') {
+        const ct = req.headers['content-type'] ?? '';
+        if (!ct.startsWith('multipart/form-data')) {
+          return json(res, 400, { error: '上传请求必须使用 multipart/form-data 格式' });
+        }
+        const parts = await receiveMultipart(req, ct);
+        const uploadDir = join(ctx.projectRoot, '.html-video', 'batch', 'uploads', randomUUID());
+        await mkdir(uploadDir, { recursive: true });
+        const stored: string[] = [];
+        for (const part of parts) {
+          if (part.kind !== 'file') continue;
+          const ext = extname(part.filename).toLowerCase();
+          if (ext !== '.srt' && ext !== '.mp3') continue;
+          const safeName = basename(part.filename).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+          const target = join(uploadDir, safeName);
+          await copyFile(part.tmpPath, target);
+          stored.push(target);
+        }
+        const matched = matchMediaFiles(stored);
+        return json(res, 200, { uploadDir, ...matched });
+      }
+
+      if (url.pathname === '/api/batch/enqueue' && m === 'POST') {
+        const body = await readBody(req);
+        const rawOutputDir = typeof body.outputDir === 'string' ? body.outputDir.trim() : '';
+        if (!rawOutputDir || !isAbsolute(rawOutputDir)) {
+          return json(res, 400, { error: '请输入完整输出路径，或使用“选择目录”按钮' });
+        }
+        const outputDir = resolve(rawOutputDir);
+        const style = typeof body.style === 'string' ? body.style : 'ai-auto';
+        const allowedStyles = new Set<string>(['ai-auto', ...BATCH_TEMPLATE_IDS]);
+        if (!outputDir) return json(res, 400, { error: '请选择输出目录' });
+        if (!allowedStyles.has(style)) return json(res, 400, { error: `不支持的风格：${style}` });
+        if (!Array.isArray(body.pairs) || body.pairs.length === 0) {
+          return json(res, 400, { error: '没有可加入队列的 SRT/MP3 文件对' });
+        }
+        await mkdir(outputDir, { recursive: true });
+        const inputs: BatchTaskInput[] = [];
+        for (const raw of body.pairs) {
+          if (!raw || typeof raw !== 'object') continue;
+          const pair = raw as Record<string, unknown>;
+          const srtPath = typeof pair.srtPath === 'string' ? resolve(pair.srtPath) : '';
+          const mp3Path = typeof pair.mp3Path === 'string' ? resolve(pair.mp3Path) : '';
+          if (!srtPath || !mp3Path || !existsSync(srtPath) || !existsSync(mp3Path)) continue;
+          if (extname(srtPath).toLowerCase() !== '.srt' || extname(mp3Path).toLowerCase() !== '.mp3') continue;
+          inputs.push({
+            baseName: typeof pair.baseName === 'string' && pair.baseName.trim()
+              ? pair.baseName.trim()
+              : basename(srtPath, extname(srtPath)),
+            srtPath,
+            mp3Path,
+            outputDir,
+            style: style as BatchTaskInput['style'],
+            ...(typeof body.agentId === 'string' && body.agentId && { agentId: body.agentId }),
+            ...(typeof body.agentModel === 'string' && body.agentModel && { agentModel: body.agentModel }),
+          });
+        }
+        if (inputs.length === 0) return json(res, 400, { error: 'SRT/MP3 路径无效' });
+        const tasks = batchQueue.enqueue(inputs);
+        return json(res, 200, { tasks });
+      }
+
+      if (url.pathname === '/api/batch/tasks' && m === 'GET') {
+        return json(res, 200, { tasks: batchQueue.list() });
+      }
+
+      if (url.pathname === '/api/batch/reveal-output' && m === 'POST') {
+        const body = await readBody(req);
+        const rawOutputDir = typeof body.outputDir === 'string' ? body.outputDir.trim() : '';
+        if (!rawOutputDir || !isAbsolute(rawOutputDir)) {
+          return json(res, 400, { error: '请输入完整输出路径，或使用“选择目录”按钮' });
+        }
+        const outputDir = resolve(rawOutputDir);
+        if (!outputDir || !existsSync(outputDir) || !statSync(outputDir).isDirectory()) {
+          return json(res, 400, { error: '输出目录不存在' });
+        }
+        const { spawn } = await import('node:child_process');
+        const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+        spawn(command, [outputDir], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        return json(res, 200, { ok: true, outputDir });
       }
 
       // Get / update / delete single project
@@ -698,7 +834,7 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
         const agentId = testMatch[1];
         const def = findAgent(agentId);
         if (!def) return json(res, 404, { error: `agent "${agentId}" not registered` });
-        const prompt = 'Reply with one word: hello.';
+        const prompt = '仅回复两个字：你好。';
         const t0 = Date.now();
         let out = '';
         let err = '';
@@ -918,7 +1054,7 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
           }
         }
 
-        const fullPrompt = buildHtmlGenerationPrompt({
+        const fullPrompt = forceSimplifiedChineseOutput(buildHtmlGenerationPrompt({
           tmpl,
           exampleHtml,
           priorHtml,
@@ -927,7 +1063,7 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
           attachments,
           focusFrameId: focusFrameId || undefined,
           openingTopic: resolveOpeningTopic(project, history),
-        });
+        }));
         const phaseInfo = detectPhase(
           history,
           userText,
@@ -1056,16 +1192,16 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
               onSse: sseWrite,
             });
             summaryLine = rewriteInputs
-              ? `✓ ${result.frameCount}-frame storyboard ${restyleOnly ? 'restyled' : 'regenerated'} (intent: ${result.intent})`
-              : `✓ ${result.frameCount}-frame storyboard generated (intent: ${result.intent})`;
+              ? `✓ ${result.frameCount} 帧故事板已${restyleOnly ? '按新风格重做' : '根据新内容重做'}（类型：${result.intent}）`
+              : `✓ 已生成 ${result.frameCount} 帧故事板（类型：${result.intent}）`;
             sseWrite({ type: 'preview_ready', preview_url: `/preview/${id}`, frames: result.frameCount });
             sseWrite({ type: 'message_end', reason: 'ok' });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             process.stderr.write(`[studio:msg] proj=${id} split-generate failed: ${msg}\n`);
-            sseWrite({ type: 'text', chunk: `\n⚠️ Split generate failed: ${msg}` });
+            sseWrite({ type: 'text', chunk: `\n⚠️ 多帧生成失败：${msg}` });
             sseWrite({ type: 'message_end', reason: 'error' });
-            assistantText = `⚠️ Split generate failed: ${msg}`;
+            assistantText = `⚠️ 多帧生成失败：${msg}`;
           }
           process.stderr.write(
             `[studio:msg] proj=${id} phase=split-generate done text=${assistantText.length}B\n`,
@@ -1146,10 +1282,10 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
               try {
                 await ctx.orchestrator.writeFrameHtml(id, focusFrameId, extracted);
                 sseWrite({ type: 'preview_ready', preview_url: `/preview/${id}`, focused_frame: focusFrameId });
-                summaryLine = `✓ frame ${focusFrameId} updated`;
+                summaryLine = `✓ 分镜 ${focusFrameId} 已更新`;
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                sseWrite({ type: 'text', chunk: `\n[frame ${focusFrameId} write failed: ${msg}]\n` });
+                sseWrite({ type: 'text', chunk: `\n[分镜 ${focusFrameId} 写入失败：${msg}]\n` });
               }
             }
           } else {
@@ -1163,17 +1299,17 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
                   await ctx.orchestrator.writeFrameHtml(id, f.nodeId, f.html);
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
-                  sseWrite({ type: 'text', chunk: `\n[frame ${f.nodeId} skipped: ${msg}]\n` });
+                  sseWrite({ type: 'text', chunk: `\n[分镜 ${f.nodeId} 已跳过：${msg}]\n` });
                 }
               }
               sseWrite({ type: 'preview_ready', preview_url: `/preview/${id}`, frames: multi.frames.length });
-              summaryLine = `✓ ${multi.frames.length}-frame storyboard generated (intent: ${multi.graph.intent})`;
+              summaryLine = `✓ 已生成 ${multi.frames.length} 帧故事板（类型：${multi.graph.intent}）`;
             } else {
               const extracted = extractHtmlDocument(assistantText);
               if (extracted) {
                 await ctx.orchestrator.writePreviewHtmlRaw(id, extracted);
                 sseWrite({ type: 'preview_ready', preview_url: `/preview/${id}` });
-                summaryLine = '✓ updated the HTML preview';
+                summaryLine = '✓ HTML 预览已更新';
               }
             }
           }
@@ -1186,7 +1322,7 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
         // without having to send an extra "ok" message.
         if (phaseInfo.phase === 'content' && !/<!--\s*hv-phase:content-question\s*-->/i.test(assistantText)) {
           const autoPickedType = lastCardPickByPhase(history, 'type') ?? phaseInfo.inputs.pickedType ?? '';
-          const stylePrompt = buildStylePhasePrompt(autoPickedType);
+          const stylePrompt = forceSimplifiedChineseOutput(buildStylePhasePrompt(autoPickedType));
           const styleHandle = spawnAgent({
             def: agentDef,
             prompt: stylePrompt,
@@ -1219,7 +1355,7 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
         // prompt confused the model into doing nothing. Give the user something
         // actionable instead of a blank speech bubble.
         if (!persistText.trim()) {
-          const fallback = '⚠️ The agent returned an empty reply. Try rephrasing your request — e.g. tell it the brand / topic / 1-2 concrete details, or which kind of frame you want first.';
+          const fallback = '⚠️ Agent 没有返回内容。请换一种说法，例如补充品牌、主题、1～2 个具体信息，或说明想先做哪种分镜。';
           sseWrite({ type: 'text', chunk: fallback });
           persistText = fallback;
         }
@@ -2448,6 +2584,22 @@ function isMultiFrameType(pickedType: string): boolean {
   return !single;
 }
 
+/** Private Chinese workbench contract. Agent instructions stay mostly in
+ * English for model reliability, while this prefix fixes the language of all
+ * user-visible chat copy and every text node rendered into the video. */
+function forceSimplifiedChineseOutput(prompt: string): string {
+  return [
+    'LANGUAGE CONTRACT (HIGHEST PRIORITY): This is a Simplified Chinese-only video workbench.',
+    '- Reply to the user in Simplified Chinese.',
+    '- Every user-visible word rendered inside generated HTML/video must be Simplified Chinese, except unavoidable proper nouns, product names, file names, code, and numeric units.',
+    '- Content-graph synopsis, node text, chart titles, labels, captions, calls to action, and accessibility text must be Simplified Chinese.',
+    '- If source material is already Chinese, preserve its wording and facts. Never translate Chinese into English or pinyin.',
+    '- Technical keys, JSON schema fields, HTML/CSS/JavaScript, template IDs, and hidden control markers must remain exactly as required.',
+    '',
+    prompt,
+  ].join('\n');
+}
+
 function buildStylePhasePrompt(pickedType: string): string {
   const p: string[] = [];
   p.push(`The user has shared their content for a "${pickedType}". Now ask them about visual style with ONE hv-options card. JSON shape EXACTLY as shown — keep "meta" verbatim:`);
@@ -2456,10 +2608,10 @@ function buildStylePhasePrompt(pickedType: string): string {
     meta: { phase: 'style' },
     question: '视觉风格怎么定？',
     options: [
-      { label: 'Cyberpunk glitch',    hint: '霓虹 / 故障感 / 高对比' },
-      { label: 'Swiss minimalist',    hint: '网格 / 无衬线 / 留白' },
-      { label: 'Warm-grain magazine', hint: '纸感 / 衬线 / 暖色' },
-      { label: 'Mono brutalist',      hint: '黑白 / 块状 / 粗体' },
+      { label: '赛博故障',       hint: '霓虹 / 故障感 / 高对比' },
+      { label: '瑞士极简',       hint: '网格 / 无衬线 / 留白' },
+      { label: '暖色颗粒杂志',   hint: '纸感 / 衬线 / 暖色' },
+      { label: '黑白粗野主义',   hint: '黑白 / 块状 / 粗体' },
       { label: '从设计模板选',        hint: '上方挑一个现成模板' },
     ],
     allow_freeform: true,
@@ -2612,10 +2764,10 @@ function buildHtmlGenerationPrompt(args: BuildPromptArgs): string {
       question: '先在顶部「模板」里选一个模板，选好后点下面继续；或直接选一种内置风格：',
       options: [
         { label: '我已选好模板，继续', hint: '用顶部选中的模板生成' },
-        { label: 'Cyberpunk glitch',   hint: '霓虹 / 故障感 / 高对比' },
-        { label: 'Swiss minimalist',   hint: '网格 / 无衬线 / 留白' },
-        { label: 'Warm-grain magazine',hint: '纸感 / 衬线 / 暖色' },
-        { label: 'Mono brutalist',     hint: '黑白 / 块状 / 粗体' },
+        { label: '赛博故障',       hint: '霓虹 / 故障感 / 高对比' },
+        { label: '瑞士极简',       hint: '网格 / 无衬线 / 留白' },
+        { label: '暖色颗粒杂志',   hint: '纸感 / 衬线 / 暖色' },
+        { label: '黑白粗野主义',   hint: '黑白 / 块状 / 粗体' },
       ],
       allow_freeform: true,
     }, null, 2));
@@ -3288,7 +3440,7 @@ async function runSplitMultiFrameGenerate(
   graphPromptParts.push(`DATA FRAME QUALITY: (1) Items in ONE data frame must be COMPARABLE — the same unit and a similar order of magnitude. Do NOT mix wildly different scales in one chart (e.g. 61,000 GitHub stars next to 142 plugins) — one giant bar makes the rest invisible. If figures have different units or scales, split them across separate data frames, or pick the 2-4 that genuinely compare. (2) \`unit\` is OPTIONAL and only for a real shared unit (e.g. "%", "K", "★", "ms"). If the numbers are plain counts with no meaningful unit, OMIT \`unit\` entirely — never use filler like "count" / "个" / "次".`);
   graphPromptParts.push(`STRICT JSON: the block must be valid JSON. Inside string values do NOT use straight double-quotes ("…") — if you need to quote a term or title, use 「」 or 《》 or single quotes. No trailing commas. No comments.`);
 
-  const graphPrompt = graphPromptParts.join('\n');
+  const graphPrompt = forceSimplifiedChineseOutput(graphPromptParts.join('\n'));
   const graphText = await callAgentSimple(agentDef, graphPrompt, projectDir, agentModel);
   const graphMatch = /```json#content-graph\s*\n([\s\S]*?)```/i.exec(graphText)
     ?? /```json\s*\n([\s\S]*?)```/i.exec(graphText);
@@ -3387,7 +3539,7 @@ h1{font-size:8vw;letter-spacing:-.03em;animation:in 1s ease forwards;opacity:0;t
     fp.push('');
     fp.push(`Do NOT return an empty reply. Output the full HTML.`);
 
-    const framePrompt = fp.join('\n');
+    const framePrompt = forceSimplifiedChineseOutput(fp.join('\n'));
     let frameText = await callAgentSimple(agentDef, framePrompt, projectDir, agentModel);
     let extracted = /```html\s*\n([\s\S]*?)```/i.exec(frameText)?.[1]?.trim()
       ?? /<!doctype html[\s\S]*?<\/html>/i.exec(frameText)?.[0];
@@ -3395,7 +3547,7 @@ h1{font-size:8vw;letter-spacing:-.03em;animation:in 1s ease forwards;opacity:0;t
     // One retry on empty: shorter prompt, just the skeleton call.
     if (!extracted) {
       onProgress(`  ↻ 第 ${i + 1} 帧首试为空，重试…`);
-      const retryPrompt = `Output ONE complete HTML video frame in a fenced \`\`\`html block. Frame purpose: ${frameContext}. Style: ${styleLabel || 'tasteful default'}. Resolution: ${resolution}. ${contentTurns.length ? `Content: ${contentTurns.join(' / ').slice(0, 200)}` : ''} \n\nBegin your reply with \`\`\`html. Inline CSS, opens with animation, tag text with data-hv-text. No prose.`;
+      const retryPrompt = forceSimplifiedChineseOutput(`Output ONE complete HTML video frame in a fenced \`\`\`html block. Frame purpose: ${frameContext}. Style: ${styleLabel || 'tasteful default'}. Resolution: ${resolution}. ${contentTurns.length ? `Content: ${contentTurns.join(' / ').slice(0, 200)}` : ''} \n\nBegin your reply with \`\`\`html. Inline CSS, opens with animation, tag text with data-hv-text. No prose.`);
       frameText = await callAgentSimple(agentDef, retryPrompt, projectDir, agentModel);
       extracted = /```html\s*\n([\s\S]*?)```/i.exec(frameText)?.[1]?.trim()
         ?? /<!doctype html[\s\S]*?<\/html>/i.exec(frameText)?.[0];

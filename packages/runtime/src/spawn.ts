@@ -107,11 +107,16 @@ export function spawnAgent(opts: SpawnOptions): SpawnHandle {
       if (resolved) command = resolved;
     }
 
+    // Only Windows batch shims need cmd.exe. Native executables (including
+    // node.exe in tests) must receive argv directly; routing them through a
+    // shell corrupts multiline/-e arguments and can change the exit code.
+    const needsShell = isWin && /\.(cmd|bat)$/i.test(command);
+
     const child = cpSpawn(command, args, {
       cwd: context.cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(isWin && { shell: true }),
+      ...(needsShell && { shell: true }),
       windowsHide: true,
     });
     childKill = () => {

@@ -23,6 +23,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "smoke": "pnpm --filter @html-video/cli smoke",
+    "batch-smoke": "pnpm --filter @html-video/cli batch-smoke",
     "format": "biome format --write .",
     "lint": "biome lint ."
   },

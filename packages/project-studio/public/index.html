@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>html-video · Studio</title>
+<title>html-video · 视频工作台</title>
 <link rel="stylesheet" href="/tokens.css?v=0.9-hyperframes" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,6 +15,7 @@
   html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans);
     height: 100vh; overflow: hidden; font-size: 13.5px; line-height: 1.5; }
   button, input, textarea, select { font-family: inherit; font-size: inherit; }
+  button[aria-busy="true"] { cursor: wait !important; opacity: .72; }
   a { color: var(--accent); }
 
   .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
@@ -1034,6 +1035,49 @@
   .small-modal button.primary { background: var(--accent); color: var(--accent-fg);
     border-color: var(--accent); font-weight: 500; }
   .small-modal button.primary:hover { background: var(--accent-hover); }
+  /* ===== Local SRT + MP3 batch workbench ===== */
+  .batch-btn { background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border);
+    padding: 9px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+  .batch-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .batch-modal { z-index: 1150; }
+  .batch-modal .modal { width: min(1040px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+  .batch-head { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .batch-head h2 { margin: 0; font-size: 18px; font-family: var(--font-serif); }
+  .batch-head p { margin: 3px 0 0; color: var(--text-muted); font-size: 11.5px; }
+  .batch-head .grow { flex: 1; }
+  .batch-body { padding: 18px 20px; overflow: auto; display: grid; gap: 14px; }
+  .batch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .batch-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; background: var(--bg-panel); }
+  .batch-card h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+  .batch-path-row { display: flex; gap: 7px; }
+  .batch-path-row input, .batch-card select { flex: 1; min-width: 0; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; }
+  .batch-card button { background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 11px; cursor: pointer; font-size: 11.5px; }
+  .batch-card button:hover { border-color: var(--accent); }
+  .batch-upload-actions { display: flex; gap: 7px; margin-top: 9px; }
+  .batch-pairs { font-size: 11.5px; color: var(--text-muted); line-height: 1.65; max-height: 110px; overflow: auto; }
+  .batch-pairs .ok { color: var(--success); }
+  .batch-pairs .warn { color: #d79a43; }
+  .batch-actions { display: flex; align-items: center; gap: 10px; }
+  .batch-actions .primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; padding: 10px 18px; }
+  .batch-actions .primary:disabled { opacity: .45; cursor: not-allowed; }
+  .batch-actions .grow { flex: 1; }
+  .batch-note { color: var(--text-muted); font-size: 11px; }
+  .batch-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+  .batch-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .batch-table th { text-align: left; color: var(--text-muted); font-weight: 500; background: var(--bg-subtle); }
+  .batch-table th, .batch-table td { padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .batch-table tr:last-child td { border-bottom: 0; }
+  .batch-status { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .batch-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+  .batch-status.processing::before { background: #e2aa43; box-shadow: 0 0 0 3px rgba(226,170,67,.12); }
+  .batch-status.success::before { background: var(--success); }
+  .batch-status.failed::before { background: var(--danger); }
+  .batch-error { color: var(--danger); max-width: 380px; overflow-wrap: anywhere; margin-top: 3px; }
+  .batch-progress { width: 150px; height: 4px; background: var(--bg); border-radius: 4px; overflow: hidden; margin-top: 5px; }
+  .batch-progress i { display: block; height: 100%; background: var(--accent); }
+  @media (max-width: 800px) { .batch-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -1044,21 +1088,21 @@
       <div class="logo">H</div>
       <div>
         <h1>html-video</h1>
-        <div class="v">studio · v0.7</div>
+        <div class="v">视频工作台 · v0.7</div>
       </div>
     </div>
 
     <input class="name-input" id="proj-name" data-i18n-attr="placeholder:app.no_project" disabled />
 
     <div class="toolbar-section">
-      <span class="sec-label" data-i18n="toolbar.template">Template</span>
+      <span class="sec-label" data-i18n="toolbar.template">模板</span>
       <button class="pick-btn empty" id="btn-pick-template" disabled>
         <span class="label">— choose —</span><span class="arrow">▾</span>
       </button>
     </div>
 
     <div class="toolbar-section agent-switch" id="agent-switch">
-      <span class="sec-label" data-i18n="toolbar.agent">Agent</span>
+      <span class="sec-label">外部 AI</span>
       <button class="pick-btn agent-pill" id="btn-agent">
         <span class="agent-dot" id="agent-dot"></span>
         <span class="agent-pill-logo" id="agent-pill-logo"></span>
@@ -1069,18 +1113,18 @@
 
     <!-- Model picker — only shown for agents that expose a model catalog (AMR). -->
     <div class="toolbar-section model-switch" id="model-switch" hidden>
-      <span class="sec-label" data-i18n="toolbar.model">Model</span>
+      <span class="sec-label" data-i18n="toolbar.model">模型</span>
       <select class="model-select" id="model-select"></select>
     </div>
 
     <div class="grow"></div>
 
     <div class="toolbar-section toolbar-links">
-      <a class="tb-link" href="https://github.com/nexu-io/html-video" target="_blank" rel="noopener" title="html-video on GitHub" aria-label="html-video repo">
+      <a class="tb-link" href="https://github.com/nexu-io/html-video" target="_blank" rel="noopener" title="在 GitHub 查看 html-video" aria-label="html-video 代码仓库">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.63 22.42c.57.1.78-.25.78-.55v-2.13c-3.18.69-3.85-1.36-3.85-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.54-.29-5.21-1.27-5.21-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17a10.92 10.92 0 0 1 5.74 0c2.18-1.48 3.15-1.17 3.15-1.17.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.68 5.36-5.23 5.65.41.36.78 1.06.78 2.13v3.16c0 .31.21.66.79.55A11.5 11.5 0 0 0 12 .5z"/></svg>
         <span class="tb-link-label">html-video</span>
       </a>
-      <a class="tb-link" href="https://github.com/nexu-io/open-design" target="_blank" rel="noopener" title="Open Design on GitHub" aria-label="Open Design repo">
+      <a class="tb-link" href="https://github.com/nexu-io/open-design" target="_blank" rel="noopener" title="在 GitHub 查看 Open Design" aria-label="Open Design 代码仓库">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.63 22.42c.57.1.78-.25.78-.55v-2.13c-3.18.69-3.85-1.36-3.85-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.54-.29-5.21-1.27-5.21-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.17a10.92 10.92 0 0 1 5.74 0c2.18-1.48 3.15-1.17 3.15-1.17.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.68 5.36-5.23 5.65.41.36.78 1.06.78 2.13v3.16c0 .31.21.66.79.55A11.5 11.5 0 0 0 12 .5z"/></svg>
         <span class="tb-link-label">Open Design</span>
       </a>
@@ -1089,27 +1133,28 @@
       </a>
     </div>
 
-    <button class="icon-btn-toolbar" id="btn-settings" title="Settings" aria-label="Settings">
+    <button class="icon-btn-toolbar" id="btn-settings" title="设置" aria-label="设置">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
 
-    <button class="export-btn" id="btn-export" disabled data-i18n="toolbar.export_mp4">Export MP4</button>
+    <button class="batch-btn" id="btn-batch">SRT / MP3 批量</button>
+    <button class="export-btn" id="btn-export" disabled data-i18n="toolbar.export_mp4">导出 MP4</button>
   </header>
 
   <div class="body" id="body">
     <aside class="sidebar">
       <div class="sidebar-head">
-        <h2>Projects</h2>
-        <button class="new-project" id="btn-new">+ New</button>
-        <button class="sidebar-toggle" id="btn-sidebar-toggle" title="Collapse sidebar">‹</button>
+        <h2 data-i18n="sidebar.projects">项目</h2>
+        <button class="new-project" id="btn-new" data-i18n="sidebar.new">+ 新建</button>
+        <button class="sidebar-toggle" id="btn-sidebar-toggle" title="收起侧栏" data-i18n-attr="title:sidebar.collapse">‹</button>
       </div>
       <div class="project-list" id="project-list"></div>
     </aside>
     <div class="empty-state">
       <div>
         <div class="ico">🎬</div>
-        <h2>Pick or create a project</h2>
-        <p>Each project = one HTML video. Choose a template to see the visual baseline, chat with your agent to drive the content, edit per-frame text in the middle column, see the result on the right.</p>
+        <h2 data-i18n="app.empty_pick_create">挑一个项目或新建</h2>
+        <p data-i18n="app.empty_subtitle">每个项目对应一个 HTML 视频。选择模板、与 Agent 对话生成内容、编辑逐帧文字并预览结果。</p>
       </div>
     </div>
   </div>
@@ -1119,12 +1164,12 @@
 
 <div class="modal-bg small-modal" id="new-modal">
   <div class="modal">
-    <h2 data-i18n="modal.new.title">New project</h2>
+    <h2 data-i18n="modal.new.title">新建项目</h2>
     <input id="new-name" data-i18n-attr="placeholder:modal.new.name_placeholder" autofocus />
     <input id="new-intent" data-i18n-attr="placeholder:modal.new.intent_placeholder" />
     <div class="actions">
-      <button id="new-cancel" data-i18n="modal.new.cancel">Cancel</button>
-      <button class="primary" id="new-ok" data-i18n="modal.new.create">Create</button>
+      <button id="new-cancel" data-i18n="modal.new.cancel">取消</button>
+      <button class="primary" id="new-ok" data-i18n="modal.new.create">创建</button>
     </div>
   </div>
 </div>
@@ -1132,8 +1177,8 @@
 <div class="modal-bg" id="gallery-modal">
   <div class="modal">
     <div class="modal-head">
-      <h2 data-i18n="gallery.title">Pick a template</h2>
-      <button class="modal-close" id="gallery-close" data-i18n="gallery.close">Close</button>
+      <h2 data-i18n="gallery.title">选择模板</h2>
+      <button class="modal-close" id="gallery-close" data-i18n="gallery.close">✕</button>
     </div>
     <div class="gallery" id="gallery"></div>
   </div>
@@ -1144,7 +1189,7 @@
     <div class="tpl-preview-head">
       <div class="name" id="tpl-preview-name">—</div>
       <div class="desc" id="tpl-preview-desc"></div>
-      <button class="modal-close" id="tpl-preview-close" aria-label="Close">✕</button>
+      <button class="modal-close" id="tpl-preview-close" aria-label="关闭">✕</button>
     </div>
     <div class="tpl-preview-stage">
       <div class="tpl-preview-frame" id="tpl-preview-frame">
@@ -1156,8 +1201,8 @@
     <div class="tpl-preview-foot">
       <div class="meta" id="tpl-preview-meta"></div>
       <div class="grow"></div>
-      <button id="tpl-preview-cancel" data-i18n="tpl_preview.cancel">Cancel</button>
-      <button class="primary" id="tpl-preview-use" data-i18n="tpl_preview.use">Use this template</button>
+      <button id="tpl-preview-cancel" data-i18n="tpl_preview.cancel">取消</button>
+      <button class="primary" id="tpl-preview-use" data-i18n="tpl_preview.use">使用此模板</button>
     </div>
   </div>
 </div>
@@ -1165,26 +1210,26 @@
 <div class="modal-bg settings-modal" id="settings-modal">
   <div class="modal settings">
     <div class="settings-head">
-      <h2 data-i18n="settings.title">Settings</h2>
-      <button class="modal-close" id="settings-close" aria-label="Close">✕</button>
+      <h2 data-i18n="settings.title">设置</h2>
+      <button class="modal-close" id="settings-close" aria-label="关闭">✕</button>
     </div>
     <div class="settings-body">
       <nav class="settings-nav">
         <button class="settings-nav-item active" data-settings-tab="agent">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V12M4 6V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 12h4M10 8h4M18 16h4"/></svg>
-          <span data-i18n="settings.tab.agent">Agent</span>
+          <span data-i18n="settings.tab.agent">智能助手</span>
         </button>
         <button class="settings-nav-item" data-settings-tab="audio">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 11v2"/></svg>
-          <span data-i18n="settings.tab.audio">Audio</span>
+          <span data-i18n="settings.tab.audio">音频</span>
         </button>
         <button class="settings-nav-item" data-settings-tab="language">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h12M9 4v4M14 13l-4 7M14 13l4 7M11 17h6"/></svg>
-          <span data-i18n="settings.tab.language">Language</span>
+          <span data-i18n="settings.tab.language">语言</span>
         </button>
         <button class="settings-nav-item" data-settings-tab="about">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M11 12h1v4h1"/></svg>
-          <span data-i18n="settings.tab.about">About</span>
+          <span data-i18n="settings.tab.about">关于</span>
         </button>
       </nav>
       <div class="settings-panel" id="settings-panel"></div>
@@ -1192,6 +1237,68 @@
   </div>
 </div>
 
-<script type="module" src="/app.js?v=0.7"></script>
+<div class="modal-bg batch-modal" id="batch-modal">
+  <div class="modal">
+    <div class="batch-head">
+      <div>
+        <h2>SRT + MP3 本地批量生成</h2>
+        <p>同名文件自动匹配，默认串行渲染；单项失败会自动重试一次。</p>
+      </div>
+      <div class="grow"></div>
+      <button class="modal-close" id="batch-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="batch-body">
+      <div class="batch-grid">
+        <section class="batch-card">
+          <h3>输入</h3>
+          <div class="batch-path-row">
+            <input id="batch-input-dir" placeholder="输入目录路径" />
+            <button id="batch-pick-input">选择目录</button>
+            <button id="batch-scan">扫描</button>
+          </div>
+          <div class="batch-upload-actions">
+            <button id="batch-pick-files">选择一组 SRT + MP3</button>
+            <button id="batch-pick-folder-files">从浏览器选择目录</button>
+            <input id="batch-files" type="file" accept=".srt,.mp3" multiple hidden />
+            <input id="batch-folder-files" type="file" accept=".srt,.mp3" webkitdirectory multiple hidden />
+          </div>
+        </section>
+        <section class="batch-card">
+          <h3>输出与风格</h3>
+          <div class="batch-path-row">
+            <input id="batch-output-dir" placeholder="输出目录路径" />
+            <button id="batch-pick-output">选择目录</button>
+          </div>
+          <select id="batch-style" style="width:100%;margin-top:9px">
+            <option value="ai-auto">AI 自动（受控）</option>
+            <option value="frame-swiss-grid">简洁网格</option>
+            <option value="frame-kinetic-type">动感大字</option>
+            <option value="frame-warm-grain">暖色编辑</option>
+            <option value="frame-light-leak-cinema">电影字幕</option>
+            <option value="frame-bold-signal">醒目信号</option>
+          </select>
+        </section>
+      </div>
+      <section class="batch-card">
+        <h3>已匹配文件</h3>
+        <div class="batch-pairs" id="batch-pairs">尚未选择文件。</div>
+      </section>
+      <div class="batch-actions">
+        <button class="primary" id="batch-start" disabled>开始批量生成</button>
+        <span class="batch-note" id="batch-message">输出：H.264 / yuv420p / 1280×720 / 60fps</span>
+        <div class="grow"></div>
+        <button id="batch-open-output">打开输出目录</button>
+      </div>
+      <div class="batch-table-wrap">
+        <table class="batch-table">
+          <thead><tr><th>文件</th><th>状态</th><th>进度</th><th>尝试</th><th>结果 / 错误</th></tr></thead>
+          <tbody id="batch-task-list"><tr><td colspan="5" style="color:var(--text-muted)">暂无任务</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/app.js?v=0.10-external-ai"></script>
 </body>
 </html>

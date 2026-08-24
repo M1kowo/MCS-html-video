@@ -1,0 +1,68 @@
+spec_version: 1
+id: frame-srt-caption
+name: Timed SRT Captions
+description: >
+  Stable 720p/60fps subtitle timeline for local SRT + MP3 batch rendering. Uses only
+  controlled layout, theme, animation, and existing-template style references.
+
+engine: hyperframes
+engine_version: ^0.4.0
+source_entry: source/index.html
+
+category: presentation
+subcategory: subtitles
+tags: [srt, subtitles, captions, batch, chinese, typography]
+
+best_for:
+  - "SRT + MP3 batch video"
+  - "Chinese dynamic subtitles"
+  - "Reliable text-only fallback"
+
+output:
+  formats: [mp4]
+  default_format: mp4
+  resolution:
+    default: { width: 1280, height: 720 }
+    supported_aspects: ["16:9"]
+  fps:
+    default: 60
+    supported: [60]
+  duration:
+    type: variable
+    min_sec: 1
+    max_sec: 3600
+  alpha: false
+  audio:
+    supported: true
+    expected_inputs: [narration]
+
+inputs:
+  schema:
+    type: object
+    required: [cues]
+    properties:
+      cues:
+        type: array
+      directions:
+        type: array
+  examples: []
+
+license:
+  spdx: Apache-2.0
+  attribution_required: false
+  redistribution_allowed: true
+  commercial_use: true
+
+provenance:
+  origin:
+    name: none
+    kind: none
+    reference: "Original local-workbench subtitle template"
+  transformation: >
+    Purpose-built deterministic timeline renderer. No third-party source code,
+    remote media, generated imagery, or externally hosted fonts.
+
+author:
+  name: local html-video workbench
+
+version: 0.1.0

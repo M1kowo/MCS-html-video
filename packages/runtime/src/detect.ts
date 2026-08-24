@@ -7,8 +7,25 @@ import type { AgentDef, DetectedAgent } from './types.js';
 const exec = promisify(execFile);
 
 // Windows has no `which`; it ships `where.exe`. POSIX shells have `which`.
-// `where` can emit multiple lines (one per PATHEXT match) — take the first.
 const WHICH_CMD = process.platform === 'win32' ? 'where' : 'which';
+
+/**
+ * Select a path that Node can actually spawn from `where`/`which` output.
+ *
+ * npm installations on Windows can contain all of `codex`, `codex.cmd` and
+ * `codex.ps1`. `where codex` may return the extensionless shell shim first,
+ * but CreateProcess cannot execute it and spawn() fails with ENOENT. Keep the
+ * original PATH order while skipping entries Windows cannot launch.
+ */
+export function selectWhichResult(stdout: string, platform = process.platform): string | null {
+  const paths = stdout
+    .trim()
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (platform !== 'win32') return paths[0] ?? null;
+  return paths.find((value) => /\.(?:cmd|bat|exe|com)$/i.test(value)) ?? null;
+}
 
 async function which(bin: string): Promise<string | null> {
   try {
@@ -18,8 +35,7 @@ async function which(bin: string): Promise<string | null> {
     // spuriously mark an installed agent (claude/codex) unavailable, which then
     // makes the studio fall back to the API-key-only anthropic-api agent.
     const { stdout } = await exec(WHICH_CMD, [bin], { timeout: 8000 });
-    const first = stdout.trim().split(/\r?\n/)[0]?.trim();
-    return first || null;
+    return selectWhichResult(stdout);
   } catch {
     return null;
   }

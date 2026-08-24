@@ -28,6 +28,21 @@ export interface BaseNode {
    * Suggested duration in seconds for this frame. Defaults to 3s if absent.
    */
   durationSec?: number;
+  /**
+   * Optional absolute source timeline. Batch subtitle projects keep the SRT
+   * timestamps here while durationSec remains the renderer-facing length.
+   */
+  timeline?: { startMs: number; endMs: number };
+  /**
+   * Controlled visual choices selected by a composer. Values are identifiers,
+   * never executable markup; the consumer validates them against its allowlist.
+   */
+  visual?: {
+    templateId: string;
+    layout: string;
+    theme: string;
+    animation: string;
+  };
 }
 
 export interface EntityNode extends BaseNode {
@@ -112,7 +127,8 @@ export interface GraphValidationError {
     | 'self-edge'
     | 'cycle'
     | 'empty-graph'
-    | 'invalid-kind';
+    | 'invalid-kind'
+    | 'invalid-timeline';
   message: string;
   /** Offending node or edge for UI highlighting. */
   ref?: string;
@@ -153,6 +169,19 @@ export function validate(graph: ContentGraph): GraphValidationResult {
         code: 'invalid-kind',
         message: `Node "${(n as { id: string }).id}" has unknown kind "${kind}"`,
         ref: (n as { id: string }).id,
+      });
+    }
+    if (
+      n.timeline &&
+      (!Number.isFinite(n.timeline.startMs) ||
+        !Number.isFinite(n.timeline.endMs) ||
+        n.timeline.startMs < 0 ||
+        n.timeline.endMs <= n.timeline.startMs)
+    ) {
+      errors.push({
+        code: 'invalid-timeline',
+        message: `Node "${n.id}" has an invalid absolute timeline`,
+        ref: n.id,
       });
     }
   }

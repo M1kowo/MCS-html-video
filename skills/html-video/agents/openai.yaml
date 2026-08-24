@@ -1,0 +1,4 @@
+interface:
+  display_name: "html-video"
+  short_description: "Turn local subtitles, audio, and ideas into MP4 video"
+  default_prompt: "Use $html-video to create and render a video from my local files."

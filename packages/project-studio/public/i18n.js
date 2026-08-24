@@ -14,8 +14,12 @@
  * Strings missing in the active locale fall back to en, then the key.
  */
 
-export const DEFAULT_LOCALE = 'en';
-export const AVAILABLE_LOCALES = ['en', 'zh'];
+// This private Studio build is Chinese-first and intentionally exposes only
+// the Chinese UI. Keeping the English dictionary below is useful as a
+// development reference, but a stale `hv.studio.locale=en` value must not
+// switch the workbench back to English.
+export const DEFAULT_LOCALE = 'zh';
+export const AVAILABLE_LOCALES = ['zh'];
 
 const DICT = {
   en: {
@@ -273,7 +277,7 @@ const DICT = {
   zh: {
     'app.empty_pick_create': '挑一个项目或新建',
     'app.empty_subtitle':
-      '每个项目 = 一个 HTML 视频。挑一个模板看视觉基线、跟 agent 聊驱动内容、在中间栏改逐帧文字、右边看效果。',
+      '每个项目对应一个 HTML 视频。选择模板查看视觉基线，与智能助手对话生成内容，在中间栏修改逐帧文字，并在右侧预览效果。',
     'app.no_project': '未选项目',
 
     'sidebar.projects': '项目',
@@ -287,7 +291,7 @@ const DICT = {
 
     'toolbar.template': '模板',
     'toolbar.template_pick': '可选 · 挑模板',
-    'toolbar.agent': 'Agent',
+    'toolbar.agent': '智能助手',
     'toolbar.model': '模型',
     'toolbar.agent_none': '— 无 —',
     'toolbar.agent_ready': '● 就绪',
@@ -295,11 +299,11 @@ const DICT = {
     'toolbar.export_mp4': '导出 MP4',
 
     'composer.placeholder.no_project': '先选一个项目…',
-    'composer.placeholder.detecting_agents': '描述视频（正在探测 agent）…',
+    'composer.placeholder.detecting_agents': '描述视频（正在检测智能助手）…',
     'composer.placeholder.no_agent': '装 claude CLI 后即可聊天…',
     'composer.placeholder.focus': '只修改这一帧的内容（点掉上方芯片可恢复整片）…',
-    'composer.placeholder.no_template': '描述视频，或粘一个文章链接 / GitHub repo 据此生成。',
-    'composer.placeholder.with_template': '描述视频 — 内容、名字、数据…或粘文章链接 / GitHub repo。',
+    'composer.placeholder.no_template': '描述视频，或粘贴文章链接 / GitHub 仓库地址据此生成。',
+    'composer.placeholder.with_template': '描述视频——内容、名称、数据……或粘贴文章链接 / GitHub 仓库地址。',
     'composer.hint': 'Cmd / Ctrl + Enter · 拖拽 / 粘贴文件 · 拖入 design.md / frame.md 锁定品牌+动效',
     'composer.send': '发送',
     'composer.attach': '附加文件',
@@ -308,11 +312,11 @@ const DICT = {
 
     'chat.empty.title': '发条消息开始',
     'chat.empty.body':
-      '告诉 agent 想做什么 — 单帧标题卡、多帧预告片、数据大字报 — 它会搭出 HTML。',
+      '告诉智能助手想做什么——单帧标题卡、多帧预告片、数据大字报——它会生成 HTML 视频。',
     'chat.summary.form_submitted': '📋 提交了表单',
     'chat.summary.confirm_generate': '✓ 确认生成',
     'chat.summary.confirm_edit': '✏️ 改一下',
-    'chat.thinking': 'agent 思考中',
+    'chat.thinking': '智能助手思考中',
     'chat.still_generating': '⏳ 这个项目仍在后台生成中 —— 完成后结果会出现在这里（点重载预览可刷新）。',
     'chat.placeholder.gen_html': '📄 *正在生成 HTML…*',
     'chat.placeholder.plan_graph': '🧭 *规划故事板…*',
@@ -321,7 +325,7 @@ const DICT = {
 
     'preview.placeholder.pick_project': '先选一个项目。',
     'preview.placeholder.pick_template':
-      '发一条消息让 agent 生成第一版 HTML。<br>或上方挑一个模板快开。',
+      '发一条消息让智能助手生成第一版 HTML。<br>也可以从上方选择模板快速开始。',
     'preview.edit_text_on': '✓ 完成编辑',
     'preview.edit_text_off': '✎ 编辑文字',
     'preview.edit_text_title': '点画面里的文字直接修改',
@@ -442,7 +446,7 @@ const DICT = {
     'language.label': '语言',
 
     'settings.title': '设置',
-    'settings.tab.agent': 'Agent',
+    'settings.tab.agent': '智能助手',
     'settings.tab.audio': '音频',
     'settings.tab.language': '界面语言',
     'settings.tab.about': '关于',
@@ -468,16 +472,16 @@ const DICT = {
     'settings.audio.need_key': '请先填写 API key。',
     'settings.audio.hint': '保存在本地 .html-video/media-config.json。请按你的 key 选对区域——国际版 api.minimax.io 的 key 在国内版 api.minimaxi.com 上无法使用，反之亦然；旧的 api.minimaxi.chat 域名已停用。',
 
-    'settings.agent.title': 'Agent',
+    'settings.agent.title': '智能助手',
     'settings.agent.subtitle': '选一个运行时把你的对话翻成 HTML。',
     'settings.agent.mode.local': '本机 CLI',
     'settings.agent.mode.byok': 'BYOK (API)',
-    'settings.agent.detected': '已检测到的 agent（{count}）',
+    'settings.agent.detected': '已检测到的智能助手（{count}）',
     'settings.agent.test': '测试',
     'settings.agent.testing': '测试中…',
     'settings.agent.test_ok': '通过 · {ms}ms · {bytes}B',
     'settings.agent.test_fail': '失败：{message}',
-    'settings.agent.empty_reply': '失败：agent 返回为空',
+    'settings.agent.empty_reply': '失败：智能助手没有返回内容',
     'settings.agent.use': '使用',
     'settings.agent.in_use': '当前',
     'settings.agent.unavailable': '未安装',
@@ -500,7 +504,7 @@ const DICT = {
     'settings.language.zh_sub': 'ZH-CN',
 
     'settings.about.title': '关于',
-    'settings.about.subtitle': 'html-video — 开源的 HTML→视频 meta-layer，为 coding agent 设计。',
+    'settings.about.subtitle': 'html-video——面向编程智能助手的开源 HTML 转视频工具。',
     'settings.about.version': '版本',
     'settings.about.repo': '代码仓库',
     'settings.about.discord': 'Discord',
@@ -511,7 +515,7 @@ const DICT = {
 
     'tpl_preview.cancel': '取消',
     'tpl_preview.use': '使用此模板',
-    'tpl_preview.replace_confirm': '把当前模板替换为 "{name}"？现有预览不会被覆盖，下一轮 chat 时 agent 会按新模板重写。',
+    'tpl_preview.replace_confirm': '把当前模板替换为“{name}”？现有预览不会被覆盖，下一轮对话时智能助手会按新模板重写。',
     'tpl_preview.applied': '已切换模板：{name}',
     'tpl_preview.fps_dur': '{fps}fps · {duration}秒 · {aspect}',
     'tpl_preview.source_skill': '改编自',
@@ -530,7 +534,6 @@ function resolveInitialLocale() {
   } catch {
     /* localStorage unavailable */
   }
-  // Default is English regardless of nav.language. Joey explicitly asked.
   return DEFAULT_LOCALE;
 }
 
@@ -582,8 +585,8 @@ export function t(key, params) {
   const dict = DICT[_locale] ?? DICT[DEFAULT_LOCALE];
   let s = dict[key];
   if (s === undefined) {
-    // Fall back to English, then to the key itself.
-    s = DICT[DEFAULT_LOCALE][key] ?? key;
+    // Fall back to the reference English dictionary, then to the key itself.
+    s = DICT.en[key] ?? key;
   }
   if (params) {
     for (const [k, v] of Object.entries(params)) {

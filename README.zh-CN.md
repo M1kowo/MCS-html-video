@@ -178,7 +178,98 @@ pnpm -r build
 node packages/cli/dist/bin.js studio    # 在 http://127.0.0.1:3071 打开 studio
 ```
 
-在 studio 里：挑一个模板（或直接描述视频 / 粘链接），跟 agent 对话，逐帧改文案，加配乐，导出 MP4。
+Studio 默认作为外部 AI 的本地视频工作台：GPT、Codex、Claude、Cursor 等通过 MCP/CLI 写入项目，Studio 负责查看故事板、逐帧编辑、预览和导出。
+
+### 让 GPT / 任意 AI 直接调用
+
+html-video 不再要求用户从内置白名单里选择模型。启动本地 MCP：
+
+```bash
+node packages/cli/dist/bin.js mcp
+```
+
+把这条 stdio 命令配置到支持本地 MCP 的 GPT、Codex、Claude、Cursor 或其他客户端后，用户可以直接说：
+
+> 调用本地工作台 html-video，结合我给你的字幕和音频文件产出视频。
+
+Codex / ChatGPT Desktop 可以使用项目级 `.codex/config.toml`：
+
+```toml
+[mcp_servers.html-video]
+command = "node"
+args = ["E:/MCS/AutoVideo/html-video/packages/cli/dist/bin.js", "mcp"]
+cwd = "E:/MCS/AutoVideo/html-video"
+tool_timeout_sec = 1800
+```
+
+也可以在 ChatGPT Desktop 的 **Settings → MCP servers → Add server** 中选择 STDIO，填入相同命令。Codex CLI、IDE 扩展和 ChatGPT Desktop 可共享 Codex host 的 MCP 配置；ChatGPT Web 使用的是插件提供的远程 MCP，而不是本机 stdio。参见 [OpenAI 官方 MCP 文档](https://developers.openai.com/codex/extend/mcp)。
+
+AI 生成最终成片时必须使用设计方案工作流；单布局的 `render_subtitle_video` 快捷工具不再通过 MCP 暴露：
+
+```text
+create_project
+→ get_design_context
+→ write_design_plan
+→ write_storyboard
+→ write_frame_html
+→ attach_audio
+→ check_visual_variety
+→ render_project
+```
+
+单页视频推荐使用：
+
+```text
+create_project
+→ get_design_context
+→ write_design_plan
+→ write_html
+→ attach_audio
+→ check_visual_variety
+→ render_project
+```
+
+`get_design_context` 提供 Swiss Pulse、Velvet Standard、Deconstructed、Maximalist Type、Data Drift、Soft Signal、Folk Frequency、Shadow Cut 等可选风格方向，以及标题卡、动态字幕、数据图表、时间轴、人物卡、引用卡、对比画面、图片墙、产品演示、章节转场、进度提示和片尾署名等组件建议。**风格包不是固定模板，组件也不是固定槽位。** 当前外部 AI 仍然自由创作 HTML，可以选择一个风格包、混合多个风格、完全从零设计，或在 `series` 模式下延续系列视觉。
+
+每个自定义项目会保留 `.html-video/projects/<project-id>/design-plan.json`、HTML 和最终 MP4。`fresh` 模式会对比近期项目的风格包、配色、字体、布局、动画、转场、组件组合和视觉母题，返回最相似项目及替换建议；`series` 模式允许品牌一致性，但仍建议改变镜头布局或动画节奏。相似度检查只提醒，不会阻止生成。
+
+MCP 最终渲染还包含视觉多样性门禁：12 秒以上的视频至少需要 3 个语义视觉节拍、2 种布局、2 种动效节奏、3 类叙事组件和明确转场。只替换字幕文字、始终使用同一居中卡片或下三分之一布局的长视频会被拒绝并要求重做。单页 Canvas/WebGL 视频可以在根节点使用 `data-hv-visual-beats="数量"` 声明真实视觉节拍，不会被限制为固定 DOM 模板。旧的 `subtitle-render` CLI 仅保留兼容和诊断用途，不再作为 AI 的最终成片路径。
+
+设计流程遵循“先视觉身份、再 HTML；先静态 hero frame、再动画”。动画必须确定且有限，禁止 `Math.random`、`Date.now` 和无限循环；多场景必须有转场，每个场景元素需要入场动画。深色渐变、蓝紫霓虹和居中大标题都不应成为默认答案。html-video 仍是统一工作台，不要求项目直接依赖 HyperFrames CLI，现有渲染路径保持兼容。
+
+对应的纯 CLI 设计方案命令是 `project-design-context`、`project-write-design-plan` 和 `project-get-design-plan`。例如：
+
+```bash
+node packages/cli/dist/bin.js project-design-context <project-id>
+node packages/cli/dist/bin.js project-write-design-plan <project-id> --plan-file ./design-plan.json
+node packages/cli/dist/bin.js project-get-design-plan <project-id>
+```
+
+仓库附带可分发 Skill：`skills/html-video/SKILL.md`。不支持 MCP 的本地 AI 仍可直接执行同名 CLI 命令。
+
+> 纯网页端云 AI 无法自行读取用户电脑的 localhost 和本地文件；需要桌面客户端、本地连接器，或用户主动配置的远程 MCP 桥接。
+
+### 本地 SRT + MP3 批量工作台
+
+启动 studio 后，点击右上角 **SRT / MP3 批量**：
+
+1. 选择输入目录，或选择一组 `.srt` + `.mp3` 文件；同目录内同名文件会自动配对。
+2. 选择输出目录和风格。`AI 自动（受控）` 会调用当前可用的本地 Agent，只允许它从白名单模板、布局、主题和动画中选择；Agent 不可用或输出无效时自动回退到稳定字幕模板。
+3. 点击“开始批量生成”。任务默认串行执行，失败项重试一次，其他任务继续运行。
+4. 成功文件按原基础文件名写入输出目录，同时生成 `.html-video.log` 日志。
+
+批量输出固定为 H.264、yuv420p、1280×720、60fps，视频总时长取 MP3，字幕显示时间取 SRT。真实文件只需放在任意本地目录中，例如：
+
+```text
+D:\video-input\demo.srt
+D:\video-input\demo.mp3
+```
+
+仓库自带 1 秒测试 fixture，可用下面的命令验证完整 Chromium/FFmpeg 链路：
+
+```bash
+pnpm batch-smoke
+```
 
 CLI 工具：
 
@@ -189,9 +280,9 @@ node packages/cli/dist/bin.js search-templates --intent "github stars race" --to
 
 ---
 
-## 支持的 Agent
+## 兼容的内置 Agent（旧路径）
 
-在 `PATH` 上自动探测；在 studio 顶栏切换当前 agent。studio 默认把 **Open Design (Vela)** 排在最前 —— 一次登录、多种模型、成本更低 —— 然后回落到第一个*可用*的 agent，保证新项目永远有一个能用的后端。
+新的默认路径是由用户自己的 AI 通过 MCP/CLI 调用。下面的运行时仍暂时保留，供旧项目和批量工作台的“AI 自动（受控）”模式兼容使用。
 
 | Agent | 探测 | 调用 |
 |---|---|---|

@@ -2,6 +2,11 @@
 
 import { t, getLocale, setLocale, AVAILABLE_LOCALES } from './i18n.js';
 
+// The Studio is a renderer/editor. AI generation happens in the user's own
+// GPT/Codex/Claude client through html-video's MCP or CLI surface. The legacy
+// runtime remains available to the SRT batch compatibility path for now.
+const EXTERNAL_AI_MODE = true;
+
 // Re-render whole UI on language change.
 document.addEventListener('hv-locale-change', () => {
   document.documentElement.lang = getLocale();
@@ -34,6 +39,43 @@ const NARRATION_VOICES = [
   { key: 'female_sweet',  voiceId: 'female-shaonv' },
 ];
 
+// Chinese display copy for the built-in template catalog. IDs stay unchanged
+// because they are persisted in projects and used by the renderer.
+const TEMPLATE_ZH = {
+  'frame-bold-poster': ['醒目海报', '1970 年代欧洲编辑海报风，适合高冲击力宣言与标题。'],
+  'frame-bold-signal': ['醒目信号', '深色渐变上的高饱和彩色卡片，现代且有冲击力。'],
+  'frame-build-minimal': ['极简构建', '大量留白、纤细文字与暖金线条，安静而高级。'],
+  'frame-creative-voltage': ['创意电压', '电光蓝分屏、手写强调与复古现代动效。'],
+  'frame-data-chart-nyt': ['纽约时报数据图', '报刊编辑风格的动态数据图表与数字计数。'],
+  'frame-data-rollup': ['数据滚动', '柱形从零生长、数字同步滚动的原生 Remotion 数据帧。'],
+  'frame-decision-tree': ['决策树', '带分支路径动画的流程图与讲解画面。'],
+  'frame-electric-studio': ['电光工作室', '白色与电光蓝上下分屏，适合引语和专业表达。'],
+  'frame-glitch-title': ['故障标题', '带 RGB 偏移、扫描线和色差效果的赛博标题。'],
+  'frame-kinetic-type': ['动感大字', '以醒目动态排版为核心的宣传画面。'],
+  'frame-light-leak-cinema': ['漏光电影', '胶片颗粒、镜头光晕与 35mm 暖色电影质感。'],
+  'frame-liquid-bg-hero': ['流体背景主视觉', '流动网格渐变上的杂志式封面与编辑排版。'],
+  'frame-logo-outro': ['标志片尾', '标志分段组装、辉光和口号揭示，适合品牌收尾。'],
+  'frame-nyt-graph': ['报刊动态图表', '印刷编辑风格的动态数据图表。'],
+  'frame-pentagram-stat': ['五角设计数据卡', '瑞士网格、超大数字和高对比数据条。'],
+  'frame-play-mode': ['趣味模式', '轻松、弹性且活泼的社交媒体动效。'],
+  'frame-product-promo': ['产品宣传', '使用 SVG 素材的多场景产品展示。'],
+  'frame-product-promo-30s': ['30 秒产品宣传', '包含问题引入、品牌揭示、卖点、产品界面和行动号召的多场景宣传片。'],
+  'frame-srt-caption': ['定时 SRT 字幕', '用于本地 SRT 与 MP3 批量渲染的稳定 720p / 60fps 字幕时间轴。'],
+  'frame-swiss-grid': ['瑞士网格', '结构清晰、留白克制的网格布局。'],
+  'frame-takram-organic': ['Takram 有机科技', '柔和科技感的径向节点图、磨砂卡片与自然漂浮动画。'],
+  'frame-vignelli': ['维涅利', '红色强调与粗体排版构成的经典现代主义画面。'],
+  'frame-warm-grain': ['暖色颗粒', '奶油色调与细腻颗粒组成的温暖编辑风格。'],
+  'vfx-text-cursor': ['文字与光标特效', '打字机文字和闪烁终端光标，适合代码或科技展示。'],
+};
+
+function templateName(tpl) {
+  return TEMPLATE_ZH[tpl?.id]?.[0] ?? tpl?.name ?? tpl?.id ?? '';
+}
+
+function templateDescription(tpl) {
+  return TEMPLATE_ZH[tpl?.id]?.[1] ?? tpl?.description ?? '';
+}
+
 const API = {
   projects: () => fetch('/api/projects').then(r => r.json()),
   createProject: b => fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()),
@@ -52,6 +94,12 @@ const API = {
   unenhanceFrame: (id, nodeId) => fetch(`/api/projects/${id}/frames/${encodeURIComponent(nodeId)}/unenhance`, { method: 'POST' }).then(r => r.json()),
   testAgent: id => fetch(`/api/agents/${encodeURIComponent(id)}/test`, { method: 'POST' }).then(r => r.json()),
   rescanAgents: () => fetch('/api/agents?force=1').then(r => r.json()),
+  batchPickDirectory: kind => fetch('/api/batch/pick-directory', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }) }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`); return data; }),
+  batchScan: inputDir => fetch('/api/batch/scan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ inputDir }) }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`); return data; }),
+  batchUpload: form => fetch('/api/batch/upload', { method: 'POST', body: form }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`); return data; }),
+  batchEnqueue: body => fetch('/api/batch/enqueue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`); return data; }),
+  batchTasks: () => fetch('/api/batch/tasks').then(r => r.json()),
+  batchReveal: outputDir => fetch('/api/batch/reveal-output', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ outputDir }) }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`); return data; }),
 };
 
 const state = {
@@ -75,6 +123,9 @@ const state = {
   // Phase C: per-frame native Remotion enhancement
   frameKinds: {},          // { [graphNodeId]: 'entity'|'data'|'text' } for the selected project
   enhancing: null,         // { nodeId, pct, stage } while a single-frame enhance render is in flight
+  batchMatch: { pairs: [], unmatchedSrt: [], unmatchedMp3: [] },
+  batchTasks: [],
+  batchPollTimer: null,
 };
 
 // ============== boot ==============
@@ -111,7 +162,7 @@ async function init() {
 
 function defaultProjectName(seed) {
   const n = (state.projects?.length ?? 0) + (seed ?? 0) + 1;
-  return `Untitled ${String(n).padStart(2, '0')}`;
+  return `未命名项目 ${String(n).padStart(2, '0')}`;
 }
 
 /**
@@ -405,10 +456,16 @@ function renderSidebar() {
   for (const p of state.projects) {
     const div = document.createElement('div');
     div.className = 'project-row' + (p.id === state.selectedId ? ' active' : '');
+    const statusLabels = {
+      draft: '草稿',
+      rendering: '渲染中',
+      rendered: '已完成',
+      failed: '失败',
+    };
     div.innerHTML = `
       <div class="name">${esc(p.name)}</div>
-      <div class="meta">${p.template_id ? esc(p.template_id) : 'no template'} · ${p.status}</div>
-      <button class="row-menu-btn" title="More" data-pid="${esc(p.id)}">⋯</button>
+      <div class="meta">${p.template_id ? esc(p.template_id) : '未选择模板'} · ${statusLabels[p.status] ?? esc(p.status)}</div>
+      <button class="row-menu-btn" title="更多操作" data-pid="${esc(p.id)}">⋯</button>
     `;
     div.onclick = (e) => {
       // Ignore clicks that started inside the menu button.
@@ -510,7 +567,7 @@ function renderToolbar() {
   if (p && p.templateId) {
     const tpl = state.templates.find(x => x.id === p.templateId);
     pickBtn.classList.remove('empty');
-    pickBtn.querySelector('.label').textContent = tpl ? tpl.name : p.templateId;
+    pickBtn.querySelector('.label').textContent = tpl ? templateName(tpl) : p.templateId;
   } else {
     pickBtn.classList.add('empty');
     pickBtn.querySelector('.label').textContent = t('toolbar.template_pick');
@@ -546,6 +603,16 @@ function renderAgentPill() {
   const dot = document.getElementById('agent-dot');
   const logo = document.getElementById('agent-pill-logo');
   const label = document.getElementById('agent-pill-label');
+  if (EXTERNAL_AI_MODE) {
+    pill.disabled = false;
+    label.textContent = '外部 AI / MCP';
+    logo.innerHTML = '<span aria-hidden="true">⌁</span>';
+    dot.className = 'agent-dot ok';
+    pill.title = '由 GPT、Codex、Claude、Cursor 等外部 AI 直接调用本地工作台';
+    const model = document.getElementById('model-switch');
+    if (model) model.hidden = true;
+    return;
+  }
   if (!p) {
     label.textContent = t('toolbar.agent_none');
     logo.innerHTML = '';
@@ -689,6 +756,8 @@ function _agentMenuOutside(e) {
 function wireToolbar() {
   const settingsBtn = document.getElementById('btn-settings');
   if (settingsBtn) settingsBtn.onclick = openSettingsModal;
+  const batchBtn = document.getElementById('btn-batch');
+  if (batchBtn) batchBtn.onclick = openBatchModal;
   const pickBtn = document.getElementById('btn-pick-template');
   if (pickBtn) {
     pickBtn.onclick = (e) => {
@@ -706,6 +775,7 @@ function wireToolbar() {
     agentBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (EXTERNAL_AI_MODE) { openSettingsModal('agent'); return; }
       if (!state.selected) { toast(t('composer.placeholder.no_project'), 'error'); return; }
       const menu = document.getElementById('agent-menu');
       if (!menu) return;
@@ -739,6 +809,238 @@ function wireToolbar() {
       document.body.classList.toggle('sidebar-collapsed');
     };
   }
+}
+
+/** Give every async button immediate, visible feedback and a consistent error
+ * surface. Returning null means the action failed or was already in flight. */
+async function withBusyButton(button, busyText, action) {
+  if (!button || button.dataset.busy === '1') return null;
+  const originalText = button.textContent;
+  const wasDisabled = button.disabled;
+  button.dataset.busy = '1';
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  if (busyText) button.textContent = busyText;
+  try {
+    return await action();
+  } catch (error) {
+    const message = error?.message ?? String(error);
+    toast(`操作失败：${message}`, 'error');
+    throw error;
+  } finally {
+    button.textContent = originalText;
+    button.disabled = wasDisabled;
+    button.removeAttribute('aria-busy');
+    delete button.dataset.busy;
+  }
+}
+
+// ============== Local SRT + MP3 batch workbench ==============
+function openBatchModal() {
+  const modal = document.getElementById('batch-modal');
+  if (!modal) return;
+  modal.classList.add('show');
+  renderBatchPairs();
+  refreshBatchTasks();
+  clearInterval(state.batchPollTimer);
+  state.batchPollTimer = setInterval(refreshBatchTasks, 1000);
+}
+
+function closeBatchModal() {
+  const modal = document.getElementById('batch-modal');
+  if (modal) modal.classList.remove('show');
+  clearInterval(state.batchPollTimer);
+  state.batchPollTimer = null;
+}
+
+function wireBatchModal() {
+  const modal = document.getElementById('batch-modal');
+  if (!modal) return;
+  document.getElementById('batch-close').onclick = closeBatchModal;
+  modal.addEventListener('click', (event) => {
+    if (event.target.id === 'batch-modal') closeBatchModal();
+  });
+
+  const inputDir = document.getElementById('batch-input-dir');
+  const outputDir = document.getElementById('batch-output-dir');
+  const message = document.getElementById('batch-message');
+  const pickInput = document.getElementById('batch-pick-input');
+  const pickOutput = document.getElementById('batch-pick-output');
+  pickInput.onclick = async () => {
+    try {
+      await withBusyButton(pickInput, '正在打开…', async () => {
+        message.textContent = '正在打开输入目录选择窗口…';
+        const result = await API.batchPickDirectory('input');
+        if (!result.path) { message.textContent = '已取消选择输入目录。'; return; }
+        inputDir.value = result.path;
+        message.textContent = `已选择输入目录：${result.path}`;
+        await scanBatchDirectory();
+      });
+    } catch (error) { message.textContent = `选择输入目录失败：${error?.message ?? error}`; }
+  };
+  pickOutput.onclick = async () => {
+    try {
+      await withBusyButton(pickOutput, '正在打开…', async () => {
+        message.textContent = '正在打开输出目录选择窗口…';
+        const result = await API.batchPickDirectory('output');
+        if (!result.path) { message.textContent = '已取消选择输出目录。'; return; }
+        outputDir.value = result.path;
+        message.textContent = `已选择输出目录：${result.path}`;
+        updateBatchStartState();
+      });
+    } catch (error) { message.textContent = `选择输出目录失败：${error?.message ?? error}`; }
+  };
+  document.getElementById('batch-scan').onclick = scanBatchDirectory;
+  inputDir.addEventListener('keydown', (event) => { if (event.key === 'Enter') scanBatchDirectory(); });
+  outputDir.addEventListener('input', updateBatchStartState);
+
+  const files = document.getElementById('batch-files');
+  const folderFiles = document.getElementById('batch-folder-files');
+  const pickFiles = document.getElementById('batch-pick-files');
+  const pickFolderFiles = document.getElementById('batch-pick-folder-files');
+  pickFiles.onclick = () => {
+    message.textContent = '请选择同名的 SRT 和 MP3 文件…';
+    files.click();
+  };
+  pickFolderFiles.onclick = () => {
+    message.textContent = '请选择包含 SRT 和 MP3 的文件夹…';
+    folderFiles.click();
+  };
+  files.onchange = () => uploadBatchFiles(files.files, pickFiles);
+  folderFiles.onchange = () => uploadBatchFiles(folderFiles.files, pickFolderFiles);
+
+  document.getElementById('batch-start').onclick = startBatchGeneration;
+  const openOutput = document.getElementById('batch-open-output');
+  openOutput.onclick = async () => {
+    const path = outputDir.value.trim();
+    if (!path) { toast('请先选择输出目录', 'error'); return; }
+    try {
+      await withBusyButton(openOutput, '正在打开…', async () => {
+        await API.batchReveal(path);
+        message.textContent = `已打开输出目录：${path}`;
+      });
+    } catch (error) { message.textContent = `打开输出目录失败：${error?.message ?? error}`; }
+  };
+}
+
+async function scanBatchDirectory() {
+  const input = document.getElementById('batch-input-dir');
+  const message = document.getElementById('batch-message');
+  const button = document.getElementById('batch-scan');
+  const path = input.value.trim();
+  if (!path) { toast('请先选择输入目录', 'error'); return; }
+  try {
+    await withBusyButton(button, '扫描中…', async () => {
+      message.textContent = '正在扫描目录…';
+      state.batchMatch = await API.batchScan(path);
+      renderBatchPairs();
+      message.textContent = `扫描完成：已匹配 ${state.batchMatch.pairs.length} 组文件。`;
+    });
+  } catch (error) {
+    message.textContent = `扫描失败：${error?.message ?? error}`;
+  }
+}
+
+async function uploadBatchFiles(fileList, sourceButton) {
+  if (!fileList?.length) return;
+  const message = document.getElementById('batch-message');
+  const form = new FormData();
+  for (const file of fileList) form.append('files', file, file.name);
+  try {
+    await withBusyButton(sourceButton, '导入中…', async () => {
+      message.textContent = `正在导入 ${fileList.length} 个文件…`;
+      state.batchMatch = await API.batchUpload(form);
+      renderBatchPairs();
+      message.textContent = `导入完成：已匹配 ${state.batchMatch.pairs.length} 组文件。`;
+    });
+  } catch (error) {
+    message.textContent = `导入失败：${error?.message ?? error}`;
+  }
+}
+
+function renderBatchPairs() {
+  const box = document.getElementById('batch-pairs');
+  if (!box) return;
+  const match = state.batchMatch ?? { pairs: [], unmatchedSrt: [], unmatchedMp3: [] };
+  const rows = [];
+  for (const pair of match.pairs ?? []) {
+    rows.push(`<div class="ok">✓ ${esc(pair.baseName)}.srt + ${esc(pair.baseName)}.mp3</div>`);
+  }
+  for (const path of match.unmatchedSrt ?? []) rows.push(`<div class="warn">缺少 MP3：${esc(batchFilename(path))}</div>`);
+  for (const path of match.unmatchedMp3 ?? []) rows.push(`<div class="warn">缺少 SRT：${esc(batchFilename(path))}</div>`);
+  box.innerHTML = rows.length ? rows.join('') : '没有找到同名的 SRT + MP3。';
+  updateBatchStartState();
+}
+
+function updateBatchStartState() {
+  const button = document.getElementById('batch-start');
+  const output = document.getElementById('batch-output-dir');
+  if (button) button.disabled = !(state.batchMatch?.pairs?.length > 0 && output?.value.trim());
+}
+
+async function startBatchGeneration() {
+  const button = document.getElementById('batch-start');
+  const message = document.getElementById('batch-message');
+  const outputDir = document.getElementById('batch-output-dir').value.trim();
+  const style = document.getElementById('batch-style').value;
+  if (!state.batchMatch?.pairs?.length || !outputDir) return;
+  button.disabled = true;
+  message.textContent = '正在加入串行队列…';
+  const defaultAgent = state.selected?.agentId || state.agents.find(agent => agent.available)?.id;
+  try {
+    const result = await API.batchEnqueue({
+      pairs: state.batchMatch.pairs,
+      outputDir,
+      style,
+      ...(defaultAgent && { agentId: defaultAgent }),
+      ...(state.selected?.agentModel && { agentModel: state.selected.agentModel }),
+    });
+    state.batchTasks = [...(state.batchTasks ?? []), ...(result.tasks ?? [])];
+    renderBatchTasks();
+    message.textContent = `已加入 ${result.tasks?.length ?? 0} 个任务；将按顺序逐个生成。`;
+  } catch (error) {
+    message.textContent = error?.message ?? String(error);
+    toast(message.textContent, 'error');
+  } finally {
+    updateBatchStartState();
+  }
+}
+
+async function refreshBatchTasks() {
+  try {
+    const result = await API.batchTasks();
+    state.batchTasks = result.tasks ?? [];
+    renderBatchTasks();
+  } catch (error) {
+    console.warn('batch task refresh failed:', error);
+  }
+}
+
+function renderBatchTasks() {
+  const body = document.getElementById('batch-task-list');
+  if (!body) return;
+  const labels = { waiting: '等待', processing: '处理中', success: '成功', failed: '失败' };
+  if (!state.batchTasks?.length) {
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">暂无任务</td></tr>';
+    return;
+  }
+  body.innerHTML = state.batchTasks.slice().reverse().map(task => {
+    const pct = Math.max(0, Math.min(100, Number(task.progress) || 0));
+    const detail = task.status === 'success'
+      ? `<div class="ok">${esc(task.outputPath || '')}</div>${task.storyboardWarning ? `<div class="batch-error">${esc(task.storyboardWarning)}</div>` : ''}`
+      : task.error ? `<div class="batch-error">${esc(task.error)}</div>` : esc(task.stage || '');
+    return `<tr>
+      <td>${esc(task.baseName)}</td>
+      <td><span class="batch-status ${esc(task.status)}">${labels[task.status] || esc(task.status)}</span></td>
+      <td>${formatPct(pct)}%<div class="batch-progress"><i style="width:${pct}%"></i></div><div>${esc(task.stage || '')}</div></td>
+      <td>${task.attempts}/${task.maxAttempts}</td>
+      <td>${detail}</td>
+    </tr>`;
+  }).join('');
+}
+
+function batchFilename(path) {
+  return String(path ?? '').split(/[\\/]/).pop() || String(path ?? '');
 }
 
 // ============== main: 4-column body ==============
@@ -866,9 +1168,9 @@ function renderMain() {
         <div class="graph-modal" id="graph-modal">
           <div class="panel">
             <header>
-              <h3>Content graph</h3>
+              <h3>${t('graph.title')}</h3>
               <span class="grow"></span>
-              <button class="download-btn" id="graph-download">⬇ Download JSON</button>
+              <button class="download-btn" id="graph-download">${t('graph.download')}</button>
               <button class="close-btn" id="graph-close">✕</button>
             </header>
             <pre id="graph-json"></pre>
@@ -881,7 +1183,7 @@ function renderMain() {
   `;
   // Re-attach sidebar handlers (renderMain rebuilt the DOM)
   renderSidebar();
-  document.getElementById('btn-new').onclick = createDefaultProject;
+  document.getElementById('btn-new').onclick = openNewModal;
   const togBtn = document.getElementById('btn-sidebar-toggle');
   if (togBtn) togBtn.onclick = () => document.body.classList.toggle('sidebar-collapsed');
   const tfTog = document.getElementById('btn-textfields-toggle');
@@ -1265,6 +1567,17 @@ function renderComposer() {
   const ta = document.getElementById('composer-input');
   const sendBtn = document.getElementById('btn-send');
   if (!ta) return;
+  if (EXTERNAL_AI_MODE) {
+    ta.value = '';
+    ta.placeholder = '请在 GPT / Codex / Claude / Cursor 中描述视频并调用 html-video';
+    ta.disabled = true;
+    sendBtn.disabled = true;
+    const attach = document.getElementById('btn-attach');
+    if (attach) attach.disabled = true;
+    const hint = document.querySelector('.composer .hint');
+    if (hint) hint.textContent = 'Studio 会读取外部 AI 写入的项目；点击右侧“重载预览”查看更新';
+    return;
+  }
   const availableAgents = state.agents.filter(a => a.available);
   const agentsKnown = state.agents.length > 0;
   const canType = !!p && !state.composing;
@@ -1314,9 +1627,10 @@ function renderFooter() {
   const fs = document.getElementById('footer-status');
   if (!fs) return;
   if (p) {
-    fs.innerHTML = `<b>${esc(p.name)}</b> · ${p.templateId ? `template <b>${esc(p.templateId)}</b>` : '<i>no template</i>'} · ${p.status}`;
+    const statuses = { draft: '草稿', rendering: '渲染中', rendered: '已完成', failed: '失败' };
+    fs.innerHTML = `<b>${esc(p.name)}</b> · ${p.templateId ? `模板 <b>${esc(p.templateId)}</b>` : '<i>未选择模板</i>'} · ${statuses[p.status] ?? esc(p.status)}`;
   } else {
-    fs.textContent = 'no project';
+    fs.textContent = t('app.no_project');
   }
 }
 
@@ -1324,14 +1638,24 @@ function renderFooter() {
 function renderChatLog() {
   const log = document.getElementById('chat-log');
   if (!log) return;
+  if (EXTERNAL_AI_MODE) {
+    const projectId = state.selected?.id ?? '';
+    log.innerHTML = `<div style="padding:22px;line-height:1.7;color:var(--text-muted)">
+      <div style="font-size:15px;font-weight:650;color:var(--text);margin-bottom:8px">使用你自己的 AI 生成视频</div>
+      <div>在 GPT、Codex、Claude 或 Cursor 中提出需求，AI 会通过 MCP/CLI 把故事板和 HTML 写入本项目。</div>
+      <pre style="margin:14px 0;padding:12px;border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;color:var(--text)">调用本地工作台 html-video，结合我的字幕和音频生成视频。当前项目：${esc(projectId)}</pre>
+      <div>常用入口：<code>html-video mcp</code> · <code>html-video subtitle-render</code> · <code>html-video project-apply</code></div>
+    </div>`;
+    return;
+  }
   if (!state.messages.length) {
     log.innerHTML = `<div class="chat-empty"><div><div class="ico">💬</div>
       <div style="font-weight:500;margin-bottom:6px;">${t('chat.empty.title')}</div>
       ${t('chat.empty.body')}
       <div class="examples">
-        <b>"Warm-grain magazine outro: Open Design — design that evolves itself"</b>
-        <b>"Cyberpunk glitch title saying SYSTEM ONLINE, neon cyan/magenta"</b>
-        <b>"Swiss-grid data card: Templates 231, Skills 15, Systems 150, Craft 11"</b>
+        <b>“暖色颗粒杂志风片尾：Open Design——会自我演化的设计”</b>
+        <b>“赛博故障风标题：系统已上线，青色与洋红霓虹”</b>
+        <b>“瑞士网格数据卡：模板 231、技能 15、系统 150、工艺 11”</b>
       </div>
     </div></div>`;
     return;
@@ -1856,8 +2180,8 @@ function renderOptionCard(opts, picked, msgIdx) {
   const freeformHtml = allowFreeform && !picked ? `
     <div class="freeform-input">
       <textarea data-freeform-msg="${msgIdx}" rows="1"
-        placeholder="…or type your own answer"></textarea>
-      <button class="freeform-send" data-freeform-msg="${msgIdx}" disabled>↵ Send</button>
+        placeholder="…或输入自己的答案"></textarea>
+      <button class="freeform-send" data-freeform-msg="${msgIdx}" disabled>↵ 发送</button>
     </div>` : '';
   return `<div class="opt-card">
     <div class="question">${esc(opts.question)}</div>
@@ -2251,14 +2575,14 @@ async function openGraphModal() {
   try {
     const r = await fetch(`/api/projects/${state.selected.id}/content-graph`);
     if (!r.ok) {
-      pre.textContent = '(no graph for this project)';
+      pre.textContent = t('graph.empty');
     } else {
       const { graph } = await r.json();
       pre.textContent = JSON.stringify(graph, null, 2);
       state.lastGraph = graph;
     }
   } catch (e) {
-    pre.textContent = `error loading graph: ${e.message}`;
+    pre.textContent = t('graph.error', { message: e.message });
   }
   modal.classList.add('open');
   const close = document.getElementById('graph-close');
@@ -2348,7 +2672,7 @@ function renderTextFields() {
     const labelKey = humanizeKey(f.key);
     return `<div class="text-field">
       <div class="key">${esc(labelKey)}<span class="badge">${esc(f.key)}</span></div>
-      <textarea data-i="${i}" rows="1" placeholder="(empty)">${esc(f.current)}</textarea>
+      <textarea data-i="${i}" rows="1" placeholder="（空）">${esc(f.current)}</textarea>
     </div>`;
   }).join('');
   wrap.querySelectorAll('textarea[data-i]').forEach((el) => {
@@ -2373,7 +2697,7 @@ function humanizeKey(key) {
 
 function scheduleTextSave() {
   clearTimeout(state.textSaveTimer);
-  setSaveState('typing…');
+  setSaveState(t('text_pane.save_state.typing'));
   state.textSaveTimer = setTimeout(commitTextEdits, 500);
 }
 
@@ -2389,14 +2713,14 @@ async function commitTextEdits() {
   if (!state.selected) return;
   const dirty = state.textFields.filter((f) => f.current !== f.original);
   if (dirty.length === 0) {
-    setSaveState('—');
+    setSaveState(t('text_pane.save_state.idle'));
     return;
   }
-  setSaveState('saving…', 'saving');
+  setSaveState(t('text_pane.save_state.saving'), 'saving');
   // Read the SAME source we'll write back to — the active frame's HTML
   // when there is one, otherwise the whole-project preview.
   const html = await fetchActiveFrameHtml();
-  if (!html) { setSaveState('error', 'error'); return; }
+  if (!html) { setSaveState(t('text_pane.save_state.error'), 'error'); return; }
   const doc = new DOMParser().parseFromString(html, 'text/html');
   for (const f of state.textFields) {
     const nodes = doc.querySelectorAll(`[data-hv-text="${cssEscape(f.key)}"]`);
@@ -2418,11 +2742,11 @@ async function commitTextEdits() {
     });
     r = await res.json();
   } catch (e) {
-    setSaveState('error: ' + (e?.message ?? e), 'error');
+    setSaveState(`${t('text_pane.save_state.error')}：${e?.message ?? e}`, 'error');
     return;
   }
   if (r?.error) {
-    setSaveState('error: ' + r.error, 'error');
+    setSaveState(`${t('text_pane.save_state.error')}：${r.error}`, 'error');
     return;
   }
   // Refresh project so frames-strip thumbnails cache-bust.
@@ -2435,7 +2759,7 @@ async function commitTextEdits() {
   } else if (r?.project) {
     state.selected = r.project;
   }
-  setSaveState('saved', 'saved');
+  setSaveState(t('text_pane.save_state.saved'), 'saved');
   reloadPreview();
 }
 
@@ -2643,15 +2967,15 @@ function openGallery() {
     // backend couldn't find a poster file (poster_url null).
     const inner =
       t.preview_mode === 'poster' && t.poster_url
-        ? `<img class="poster" src="${esc(t.poster_url)}" alt="${esc(t.name ?? t.id)}" loading="lazy" />`
+        ? `<img class="poster" src="${esc(t.poster_url)}" alt="${esc(templateName(t))}" loading="lazy" />`
         : `<iframe sandbox="allow-scripts allow-same-origin" src="/template-asset/${esc(t.id)}/${esc(entry)}" loading="lazy"></iframe>`;
     return `<div class="gallery-card${sel}" data-id="${t.id}">
       <div class="preview ${portrait ? 'portrait' : ''}" data-portrait="${portrait}">
         ${inner}
       </div>
       <div class="meta">
-        <div class="name">${esc(t.name)}</div>
-        <div class="desc">${esc(t.description ?? '')}</div>
+        <div class="name">${esc(templateName(t))}</div>
+        <div class="desc">${esc(templateDescription(t))}</div>
         <div class="tags">${tags}</div>
       </div>
     </div>`;
@@ -2721,8 +3045,8 @@ function openTemplatePreviewModal(tpl) {
   if (!modal) return;
   modal.classList.add('show');
 
-  document.getElementById('tpl-preview-name').textContent = tpl.name ?? tpl.id;
-  document.getElementById('tpl-preview-desc').textContent = tpl.description ?? '';
+  document.getElementById('tpl-preview-name').textContent = templateName(tpl);
+  document.getElementById('tpl-preview-desc').textContent = templateDescription(tpl);
   const dur = tpl?.output?.duration?.default_sec ?? tpl?.output?.duration?.max_sec ?? '?';
   const fps = tpl?.output?.fps?.default ?? '?';
   const aspect = (tpl?.output?.resolution?.supported_aspects ?? [])[0] ?? '16:9';
@@ -2787,7 +3111,7 @@ function openTemplatePreviewModal(tpl) {
     // before replacing — the user may have been just exploring.
     const current = state.selected.templateId;
     if (current && current !== tpl.id) {
-      if (!confirm(t('tpl_preview.replace_confirm', { name: tpl.name ?? tpl.id }))) return;
+      if (!confirm(t('tpl_preview.replace_confirm', { name: templateName(tpl) }))) return;
     }
     useBtn.disabled = true;
     try {
@@ -2795,7 +3119,7 @@ function openTemplatePreviewModal(tpl) {
       closeTemplatePreviewModal();
       closeGallery();
       await selectProject(state.selected.id);
-      toast(t('tpl_preview.applied', { name: tpl.name ?? tpl.id }), 'success');
+      toast(t('tpl_preview.applied', { name: templateName(tpl) }), 'success');
     } finally {
       useBtn.disabled = false;
     }
@@ -2873,16 +3197,23 @@ function closeNewModal() {
 }
 
 function wireModals() {
+  wireBatchModal();
   document.getElementById('new-cancel').onclick = closeNewModal;
   document.getElementById('new-ok').onclick = async () => {
+    const button = document.getElementById('new-ok');
     const name = document.getElementById('new-name').value.trim();
     const intent = document.getElementById('new-intent').value.trim();
     if (!name) { toast(t('modal.new.name_required'), 'error'); return; }
-    const r = await API.createProject({ name, ...(intent && { intent }) });
-    closeNewModal();
-    await refreshProjects();
-    await selectProject(r.project.id);
-    toast(t('modal.new.created', { name }), 'success');
+    try {
+      await withBusyButton(button, '正在创建…', async () => {
+        const r = await API.createProject({ name, ...(intent && { intent }) });
+        if (!r?.project?.id) throw new Error('服务器没有返回新项目');
+        closeNewModal();
+        await refreshProjects();
+        await selectProject(r.project.id);
+        toast(t('modal.new.created', { name }), 'success');
+      });
+    } catch { /* withBusyButton already reports the error */ }
   };
   document.getElementById('new-modal').addEventListener('click', e => {
     if (e.target.id === 'new-modal') closeNewModal();
@@ -2911,6 +3242,7 @@ function wireModals() {
       closeNewModal();
       closeGallery();
       closeSettingsModal();
+      closeBatchModal();
     }
   });
 }
@@ -2942,9 +3274,9 @@ function agentIconHtml(id) {
   return AGENT_ICON_FALLBACK[id] || '⚙️';
 }
 const AGENT_DESC = {
-  'anthropic-api': 'Direct Messages API · streams reliably',
-  'claude': 'Claude Code (claude --print)',
-  'cursor-agent': 'Cursor command line',
+  'anthropic-api': '直接调用 Messages API · 稳定流式输出',
+  'claude': 'Claude Code 命令行（claude --print）',
+  'cursor-agent': 'Cursor 命令行',
   'codex': 'Codex CLI (codex exec)',
   'hermes': 'Hermes ACP CLI',
   'qoder-cli': 'Qoder CLI (qodercli -p)',
@@ -3064,6 +3396,18 @@ async function renderSettingsAudio(panel) {
 }
 
 function renderSettingsAgent(panel) {
+  if (EXTERNAL_AI_MODE) {
+    panel.innerHTML = `
+      <h3>外部 AI 接入</h3>
+      <div class="panel-sub">html-video 不再选择或限制模型。GPT、Codex、Claude、Cursor 等工具通过同一套 MCP/CLI 调用本机工作台。</div>
+      <div class="audio-config" style="margin-top:16px">
+        <label class="audio-field"><span>本地 MCP 命令</span><input type="text" readonly value="html-video mcp" /></label>
+        <label class="audio-field"><span>SRT + MP3 一步生成</span><input type="text" readonly value="html-video subtitle-render --srt subtitles.srt --audio voice.mp3 --output-dir output" /></label>
+        <label class="audio-field"><span>完整视频包</span><input type="text" readonly value="html-video project-apply ./video-package" /></label>
+        <p class="panel-sub" style="font-size:11.5px;margin-top:6px">本地 AI 客户端使用 stdio MCP；云端网页 AI 需要桌面连接器或用户主动配置的远程 MCP 桥接才能访问本地文件。</p>
+      </div>`;
+    return;
+  }
   // Default to local CLI mode; BYOK = anthropic-api which is itself an HTTP agent
   const mode = panel.dataset.mode || 'local';
   const agents = state.agents ?? [];
@@ -3122,7 +3466,7 @@ function renderSettingsAgent(panel) {
               ? (isCurrent
                   ? `<span style="font-size:11px;color:var(--accent);font-family:var(--font-mono)">${esc(t('settings.agent.in_use'))}</span>`
                   : `<button data-act="use" class="primary-action" style="background:var(--accent);border-color:var(--accent);color:var(--accent-fg)">${esc(t('settings.agent.use'))}</button>`)
-              : (a.installUrl ? `<a href="${a.installUrl}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-faint)">install ↗</a>` : '')}
+              : (a.installUrl ? `<a href="${a.installUrl}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-faint)">安装 ↗</a>` : '')}
           </div>
           <div class="agent-test-result" data-test-result="${esc(a.id)}" style="display:none;grid-column:1 / -1"></div>
         </div>`;
