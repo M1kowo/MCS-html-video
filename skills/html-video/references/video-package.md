@@ -63,7 +63,7 @@ Use `mode: "fresh"` to request novelty and repetition warnings. Use `mode: "seri
 
 `frames` may be omitted when `frames/<node-id>.html` exists for every graph node. A single-frame package uses `"html": "video.html"` instead of `contentGraph` and `frames`.
 
-All referenced paths are relative to the package directory. Apply with `apply_video_package` or:
+All referenced paths are relative to the package directory. Frame HTML must be offline-safe: do not reference CDNs, remote fonts/media, `file://` URLs, or machine-absolute paths. Inline CSS/JavaScript and put media in `assets/`. Apply with `apply_video_package` or:
 
 ```bash
 html-video project-apply ./video-package

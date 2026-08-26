@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { CliContext } from '../context.js';
 import { fail, ok, progress } from '../output.js';
+import { assertProjectVisualVariety } from '../visual-variety.js';
 
 export async function projectCreate(
   ctx: CliContext,
@@ -146,10 +147,11 @@ export async function projectRender(
   id: string,
   opts: { output?: string; streamProgress?: boolean },
 ): Promise<void> {
+  const visualVariety = await assertProjectVisualVariety(ctx, id);
   const { project, outputPath } = await ctx.orchestrator.exportMp4({
     projectId: id,
     ...(opts.output !== undefined && { outputPath: resolve(opts.output) }),
     onProgress: opts.streamProgress ? (pct, stage) => progress(stage, pct) : undefined,
   });
-  ok({ project_id: project.id, output_path: outputPath, status: project.status });
+  ok({ project_id: project.id, output_path: outputPath, status: project.status, visual_variety: visualVariety });
 }

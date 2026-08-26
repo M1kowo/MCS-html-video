@@ -17,7 +17,7 @@ Prefer available `html-video` MCP tools. If they are not connected, run the equi
 
 `render_subtitle_video` / `subtitle-render` is a legacy compatibility path for local diagnostics, not a user-facing final-video workflow. Never use it to fulfill a generation request: its single caption-shell composition is intentionally not exposed through MCP because it produces visually repetitive results.
 
-When using the CLI, the matching commands include `project-create`, `project-design-context`, `project-write-design-plan`, `project-get-design-plan`, `project-set-graph`, `project-write-frame`, `project-write-html`, `project-attach-audio`, `project-apply`, `project-render`, and `subtitle-render`.
+When using the CLI, the matching commands include `project-create`, `project-design-context`, `project-write-design-plan`, `project-get-design-plan`, `project-set-graph`, `project-write-frame`, `project-write-html`, `project-attach-audio`, `project-apply`, and `project-render`. `subtitle-render --diagnostic` is reserved for intentional renderer smoke tests and must never be used for a final video.
 
 ## Establish the design before HTML
 
@@ -60,7 +60,7 @@ If an attachment exists only in a cloud chat and has no local path or downloadab
 - Templates are optional. Use one when it helps; generate HTML from scratch when it better fits the request.
 - Define palette roles, typography, layout, motion, transitions, components, motifs, anti-patterns, and differentiators in the design plan before generating custom HTML.
 - Build each scene's static hero frame first, verify composition and readability, and only then add animation.
-- Each frame HTML must be self-contained and render without a build step.
+- Each frame HTML must be self-contained, offline-safe, and render without a build step. Do not use CDN imports, remote fonts/media, `file://` URLs, or machine-absolute paths. Inline CSS/JavaScript, use system-font fallbacks, and reference copied project assets with relative paths.
 - Use deterministic, finite animations. Never use `Math.random`, `Date.now`, or infinite loops.
 - Multi-scene work must have transitions. Every scene element needs a deliberate entrance animation.
 - Never deliver a long video whose only visual change is replacement text inside the same caption container.

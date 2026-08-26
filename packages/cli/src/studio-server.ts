@@ -19,6 +19,8 @@ import { createBatchProcessor } from './batch/processor.js';
 import { matchMediaFiles, scanInputDirectory } from './batch/matching.js';
 import { BATCH_TEMPLATE_IDS, type BatchTaskInput } from './batch/types.js';
 import { pickDirectory } from './batch/directory-picker.js';
+import { assertPortableHtml, findHtmlPortabilityViolations } from './html-portability.js';
+import { assertProjectVisualVariety } from './visual-variety.js';
 
 interface StudioHandle {
   url: string;
@@ -505,8 +507,9 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
         const wantsStream = (req.headers.accept ?? '').includes('text/event-stream');
         if (!wantsStream) {
           try {
+            const visualVariety = await assertProjectVisualVariety(ctx, projectId);
             const { project, outputPath } = await ctx.orchestrator.exportMp4({ projectId });
-            return json(res, 200, { project, output_path: outputPath });
+            return json(res, 200, { project, output_path: outputPath, visual_variety: visualVariety });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             return json(res, 500, { error: msg });
@@ -524,6 +527,8 @@ export async function startStudioServer(ctx: CliContext, port: number): Promise<
         const t0 = Date.now();
         try {
           sse({ type: 'export_started' });
+          const visualVariety = await assertProjectVisualVariety(ctx, projectId);
+          sse({ type: 'quality_gate_passed', visual_variety: visualVariety });
           const { project, outputPath } = await ctx.orchestrator.exportMp4({
             projectId,
             onProgress: (pct, stage) => {
@@ -3500,7 +3505,7 @@ async function runSplitMultiFrameGenerate(
       for (const a of frameSourceTexts) fp.push((a.inlineText ?? '').slice(0, 3000));
       fp.push('');
     }
-    fp.push(`Output: begin with \`\`\`html and end with \`\`\`. Inline CSS + JS, full-bleed ${resolution}, opens with an animation timeline. Tag visible text with data-hv-text. CDN imports (Tailwind, GSAP) fine. No prose outside the block.`);
+    fp.push(`Output: begin with \`\`\`html and end with \`\`\`. The page MUST be fully self-contained and render offline after the project is moved to another machine: inline every CSS rule and JavaScript function; use CSS animations and system-font fallbacks; use only data: URLs or relative project-asset paths. BANNED: CDN imports (including Tailwind/GSAP), http(s) resources, file:// URLs, drive-letter paths, and network fonts. Full-bleed ${resolution}, opens with an animation timeline. Tag visible text with data-hv-text. No prose outside the block.`);
     fp.push('');
     if (templateHtml) {
       // A template is selected → its HTML is the REQUIRED look for every frame.
@@ -3547,7 +3552,7 @@ h1{font-size:8vw;letter-spacing:-.03em;animation:in 1s ease forwards;opacity:0;t
     // One retry on empty: shorter prompt, just the skeleton call.
     if (!extracted) {
       onProgress(`  ↻ 第 ${i + 1} 帧首试为空，重试…`);
-      const retryPrompt = forceSimplifiedChineseOutput(`Output ONE complete HTML video frame in a fenced \`\`\`html block. Frame purpose: ${frameContext}. Style: ${styleLabel || 'tasteful default'}. Resolution: ${resolution}. ${contentTurns.length ? `Content: ${contentTurns.join(' / ').slice(0, 200)}` : ''} \n\nBegin your reply with \`\`\`html. Inline CSS, opens with animation, tag text with data-hv-text. No prose.`);
+      const retryPrompt = forceSimplifiedChineseOutput(`Output ONE complete HTML video frame in a fenced \`\`\`html block. Frame purpose: ${frameContext}. Style: ${styleLabel || 'tasteful default'}. Resolution: ${resolution}. ${contentTurns.length ? `Content: ${contentTurns.join(' / ').slice(0, 200)}` : ''} \n\nBegin your reply with \`\`\`html. Make it fully offline and portable: inline all CSS/JS, use CSS animations and system fonts, and do not reference any CDN, http(s), file://, or absolute local path. Tag text with data-hv-text. No prose.`);
       frameText = await callAgentSimple(agentDef, retryPrompt, projectDir, agentModel);
       extracted = /```html\s*\n([\s\S]*?)```/i.exec(frameText)?.[1]?.trim()
         ?? /<!doctype html[\s\S]*?<\/html>/i.exec(frameText)?.[0];
@@ -3555,6 +3560,21 @@ h1{font-size:8vw;letter-spacing:-.03em;animation:in 1s ease forwards;opacity:0;t
     if (!extracted) {
       throw new Error(`frame "${nodeId}" generation returned empty (${frameText.length}B)`);
     }
+    const portabilityViolations = findHtmlPortabilityViolations(extracted);
+    if (portabilityViolations.length > 0) {
+      onProgress(`  ↻ 第 ${i + 1} 帧引用了外部资源，正在改为离线自包含版本…`);
+      const badRefs = portabilityViolations.map((item) => item.reference).slice(0, 5).join(', ');
+      const portableRetryPrompt = forceSimplifiedChineseOutput(
+        `Regenerate ONE complete HTML video frame in a fenced \`\`\`html block. Preserve the same frame purpose, text, visual hierarchy, palette, and motion intent, but make it fully self-contained and offline-safe. The previous answer illegally referenced: ${badRefs}. Inline every CSS rule and JavaScript function, replace Tailwind/GSAP with plain CSS/JS, use system-font fallbacks, and use only data: URLs or relative project assets. Do not reference CDN, http(s), file://, or drive-letter paths. Frame: ${frameContext}. Resolution: ${resolution}. No prose outside the block.`,
+      );
+      frameText = await callAgentSimple(agentDef, portableRetryPrompt, projectDir, agentModel);
+      extracted = /```html\s*\n([\s\S]*?)```/i.exec(frameText)?.[1]?.trim()
+        ?? /<!doctype html[\s\S]*?<\/html>/i.exec(frameText)?.[0];
+      if (!extracted) {
+        throw new Error(`frame "${nodeId}" portability retry returned empty (${frameText.length}B)`);
+      }
+    }
+    assertPortableHtml(extracted);
     await ctx.orchestrator.writeFrameHtml(projectId, nodeId, extracted);
     // Native Remotion enhancement (opt-in via format card). The frame now has a
     // FrameRecord, so enhanceFrameNative can set engine/nativeTemplateId/data in

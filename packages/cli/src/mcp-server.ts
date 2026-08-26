@@ -62,7 +62,7 @@ const TOOLS = [
     file: stringProp('Absolute or workspace-relative local path'),
     caption: stringProp('Optional asset description'),
   }, ['projectId', 'file']),
-  tool('write_html', 'Write freely authored single-page HTML after write_design_plan. Videos 12s or longer must contain at least 3 semantic visual beats/scenes (or data-hv-visual-beats="3+") before final rendering.', {
+  tool('write_html', 'Write fully self-contained, offline-safe single-page HTML after write_design_plan. CDN, remote, file://, and machine-absolute dependencies are rejected. Videos 12s or longer must contain at least 3 semantic visual beats/scenes (or data-hv-visual-beats="3+") before final rendering.', {
     projectId: stringProp('Project id'),
     html: stringProp('Complete self-contained HTML document'),
     durationSec: numberProp('Video duration in seconds'),
@@ -72,7 +72,7 @@ const TOOLS = [
     projectId: stringProp('Project id'),
     graph: objectProp('ContentGraph schemaVersion 1 object'),
   }, ['projectId', 'graph']),
-  tool('write_frame_html', 'Write freely authored HTML for one ContentGraph node, following the project design plan. Missing plans produce a compatibility warning only.', {
+  tool('write_frame_html', 'Write fully self-contained, offline-safe HTML for one ContentGraph node, following the project design plan. CDN, remote, file://, and machine-absolute dependencies are rejected. Missing plans produce a compatibility warning only.', {
     projectId: stringProp('Project id'),
     nodeId: stringProp('ContentGraph node id'),
     html: stringProp('Complete self-contained frame HTML document'),
@@ -129,7 +129,7 @@ async function handleMessage(ctx: CliContext, message: RpcMessage): Promise<void
         protocolVersion: requested,
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'html-video', version: '0.2.0' },
-        instructions: 'Generate video HTML/storyboards externally. Required flow: create_project, get_design_context, write_design_plan, author varied storyboard/HTML, attach audio, and render. Videos 12s+ need at least 3 semantic visual beats, 2 layout families, 2 motion families, 3 component types, and transitions. Single-layout subtitle-card videos are prohibited.',
+        instructions: 'Generate video HTML/storyboards externally. Required flow: create_project, get_design_context, write_design_plan, author varied storyboard/HTML, attach audio, and render. Custom HTML must be fully self-contained and offline-safe: inline CSS/JavaScript, use system-font fallbacks, and use only data URLs or relative project assets; CDN, remote, file://, and machine-absolute dependencies are rejected. Videos 12s+ need at least 3 semantic visual beats, 2 layout families, 2 motion families, 3 component types, and transitions. Single-layout subtitle-card videos are prohibited.',
       });
     }
     if (method === 'ping') return sendResult(id, {});

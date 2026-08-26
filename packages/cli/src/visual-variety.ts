@@ -16,9 +16,9 @@ export interface VisualVarietyReport {
 }
 
 /**
- * Finished-video quality gate for external-AI MCP workflows. It checks the
- * authored artifact rather than forcing a particular template or DOM shape.
- * Existing CLI commands remain permissive for old projects.
+ * Finished-video quality gate for every user-facing export path (MCP, CLI, and
+ * Studio). It checks the authored artifact rather than forcing a particular
+ * template or DOM shape.
  */
 export async function assessProjectVisualVariety(
   ctx: CliContext,

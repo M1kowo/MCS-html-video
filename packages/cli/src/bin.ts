@@ -303,14 +303,16 @@ cli
   });
 
 cli
-  .command('subtitle-render', 'Render an SRT + MP3 video without invoking an internal AI')
+  .command('subtitle-render', 'Legacy single-template diagnostic renderer (not for final videos)')
   .option('--srt <path>', 'Subtitle file (required)')
   .option('--audio <path>', 'MP3 audio file (required)')
   .option('--output-dir <path>', 'Output directory (required)')
   .option('--name <text>', 'Output basename')
   .option('--style <id>', 'Visual style template', { default: 'frame-swiss-grid' })
+  .option('--diagnostic', 'Acknowledge that this produces a legacy diagnostic sample')
   .action(async (opts: any) => {
     setJsonMode(!!opts.json);
+    if (!opts.diagnostic) fail('invalid-input', 'subtitle-render is a legacy single-template diagnostic and is blocked for final videos. Use MCP create_project → get_design_context → write_design_plan → write_storyboard/write_frame_html → check_visual_variety → render_project. Pass --diagnostic only for an intentional renderer smoke test.');
     if (!opts.srt) fail('invalid-input', '--srt required');
     if (!opts.audio) fail('invalid-input', '--audio required');
     if (!opts.outputDir) fail('invalid-input', '--output-dir required');

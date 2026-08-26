@@ -1644,7 +1644,7 @@ function renderChatLog() {
       <div style="font-size:15px;font-weight:650;color:var(--text);margin-bottom:8px">使用你自己的 AI 生成视频</div>
       <div>在 GPT、Codex、Claude 或 Cursor 中提出需求，AI 会通过 MCP/CLI 把故事板和 HTML 写入本项目。</div>
       <pre style="margin:14px 0;padding:12px;border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;color:var(--text)">调用本地工作台 html-video，结合我的字幕和音频生成视频。当前项目：${esc(projectId)}</pre>
-      <div>常用入口：<code>html-video mcp</code> · <code>html-video subtitle-render</code> · <code>html-video project-apply</code></div>
+      <div>常用入口：<code>html-video mcp</code> · <code>html-video project-apply</code>。最终导出会强制检查设计方案、分镜数量和视觉多样性。</div>
     </div>`;
     return;
   }
@@ -3402,7 +3402,7 @@ function renderSettingsAgent(panel) {
       <div class="panel-sub">html-video 不再选择或限制模型。GPT、Codex、Claude、Cursor 等工具通过同一套 MCP/CLI 调用本机工作台。</div>
       <div class="audio-config" style="margin-top:16px">
         <label class="audio-field"><span>本地 MCP 命令</span><input type="text" readonly value="html-video mcp" /></label>
-        <label class="audio-field"><span>SRT + MP3 一步生成</span><input type="text" readonly value="html-video subtitle-render --srt subtitles.srt --audio voice.mp3 --output-dir output" /></label>
+        <label class="audio-field"><span>标准成片流程</span><input type="text" readonly value="create_project → write_design_plan → write_storyboard → write_frame_html → render_project" /></label>
         <label class="audio-field"><span>完整视频包</span><input type="text" readonly value="html-video project-apply ./video-package" /></label>
         <p class="panel-sub" style="font-size:11.5px;margin-top:6px">本地 AI 客户端使用 stdio MCP；云端网页 AI 需要桌面连接器或用户主动配置的远程 MCP 桥接才能访问本地文件。</p>
       </div>`;

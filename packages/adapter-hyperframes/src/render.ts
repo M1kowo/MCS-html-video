@@ -81,6 +81,22 @@ export async function render(input: RenderInput, ctx: RenderContext): Promise<Re
       recordVideo: { dir: recordDir, size: { width, height } },
     });
     const page = await context.newPage();
+    const criticalResourceFailures: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('requestfailed', (request) => {
+      const type = request.resourceType();
+      const url = request.url();
+      // A failed web-font request can safely use the declared system fallback.
+      // Scripts and non-font stylesheets cannot: losing Tailwind/GSAP/layout CSS
+      // is the exact failure mode that otherwise records a default white page.
+      const isGoogleFont = /https?:\/\/(?:fonts\.googleapis\.com|fonts\.gstatic\.com)\//i.test(url);
+      if (type === 'script' || (type === 'stylesheet' && !isGoogleFont)) {
+        criticalResourceFailures.push(`${type} ${url} (${request.failure()?.errorText ?? 'load failed'})`);
+      }
+    });
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message);
+    });
 
     // Freeze all CSS/SMIL animations the instant the document starts parsing,
     // BEFORE any @keyframes can begin counting down. Single-file templates are
@@ -225,6 +241,49 @@ export async function render(input: RenderInput, ctx: RenderContext): Promise<Re
     // Pages sometimes set up animations on the load tick — give a frame
     // for animations to actually start before we count the duration.
     await page.waitForTimeout(100);
+
+    if (criticalResourceFailures.length > 0 || pageErrors.length > 0) {
+      const failures = [...criticalResourceFailures, ...pageErrors.map((message) => `page error: ${message}`)];
+      throw new HtmlVideoError(
+        'render-failed',
+        'Frame did not load its required CSS/JavaScript. Refusing to encode a blank or unstyled MP4. ' +
+          `Make custom frame HTML self-contained and remove CDN/file:// dependencies. ${failures.slice(0, 5).join('; ')}`,
+      );
+    }
+
+    const visualShell = await page.evaluate(() => {
+      const body = document.body;
+      if (!body) return { looksLikeBrowserDefault: true, detail: 'document has no body' };
+      const style = getComputedStyle(body);
+      const hasVisualSurface = Boolean(document.querySelector('canvas, svg, img, video'));
+      const hasAuthoredStyle = Boolean(
+        document.querySelector('style, [style]') ||
+        Array.from(document.styleSheets).some((sheet) => {
+          try { return (sheet.cssRules?.length ?? 0) > 0; } catch { return false; }
+        }),
+      );
+      const visibleText = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter((element) => {
+          const computed = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return computed.display !== 'none' && computed.visibility !== 'hidden' &&
+            Number(computed.opacity) > 0 && rect.width > 0 && rect.height > 0 &&
+            Boolean(element.textContent?.trim());
+        }).length;
+      const transparent = style.backgroundColor === 'rgba(0, 0, 0, 0)' || style.backgroundColor === 'transparent';
+      const defaultBody = style.margin === '8px' && transparent;
+      return {
+        looksLikeBrowserDefault: defaultBody && !hasAuthoredStyle && !hasVisualSurface,
+        detail: `body margin=${style.margin}, background=${style.backgroundColor}, authoredStyle=${hasAuthoredStyle}, visualSurface=${hasVisualSurface}, visibleText=${visibleText}`,
+      };
+    });
+    if (visualShell.looksLikeBrowserDefault) {
+      throw new HtmlVideoError(
+        'render-failed',
+        'Frame resolved to the browser default white page instead of an authored video composition. ' +
+          `Refusing to encode placeholder HTML (${visualShell.detail}).`,
+      );
+    }
 
     // Probe the frame's own animation length so we never cut it off. A short
     // per-frame duration set by the user could be < the frame's opening

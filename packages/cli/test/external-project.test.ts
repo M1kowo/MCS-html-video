@@ -40,6 +40,19 @@ test('single external HTML becomes a renderable one-frame project', async () => 
   assert.equal((await ctx.orchestrator.readContentGraph(project.id))?.intent, 'single-frame');
 });
 
+test('external HTML rejects CDN dependencies instead of rendering an unstyled white video', async () => {
+  const { ctx } = await workspace();
+  const project = await ctx.orchestrator.create({ name: 'Non-portable frame' });
+  await assert.rejects(
+    () => writeSingleHtml(
+      ctx,
+      project.id,
+      '<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script></head><body>01 / 08</body></html>',
+    ),
+    /HTML is not portable/,
+  );
+});
+
 test('video package imports a graph and every mapped frame', async () => {
   const { root, ctx } = await workspace();
   const packageDir = join(root, 'video-package');

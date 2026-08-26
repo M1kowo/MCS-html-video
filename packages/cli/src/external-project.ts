@@ -13,6 +13,7 @@ import type { ContentGraph } from '@html-video/content-graph';
 import { AssetStore } from '@html-video/core';
 import type { CliContext } from './context.js';
 import { writeDesignPlan } from './design-plan.js';
+import { assertPortableHtml } from './html-portability.js';
 
 export interface VideoPackageManifest {
   schemaVersion: 1;
@@ -44,6 +45,7 @@ export async function writeSingleHtml(
   opts: { durationSec?: number; nodeId?: string } = {},
 ) {
   if (!html.trim()) throw new Error('HTML is empty');
+  assertPortableHtml(html);
   const nodeId = normaliseNodeId(opts.nodeId ?? 'main');
   const durationSec = positiveDuration(opts.durationSec ?? 5);
   const graph: ContentGraph = {
@@ -93,6 +95,7 @@ export async function writeFrameHtmlValue(
   html: string,
 ) {
   if (!html.trim()) throw new Error('HTML is empty');
+  assertPortableHtml(html);
   return ctx.orchestrator.writeFrameHtml(projectId, nodeId, html);
 }
 
